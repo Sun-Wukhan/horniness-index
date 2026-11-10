@@ -8,17 +8,30 @@ like a real data pipeline — because the engineering is the joke's delivery
 mechanism.
 
 ```
- producers (one per source)                dedupe            scorer           aggregator
+ producers (one per source)              LLM router        dedupe            scorer           aggregator
  ┌────────────────────┐
  │ google-news (RSS)  │──┐
- ├────────────────────┤  │   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
- │ gdelt (global API) │──┼──▶│ headlines.raw│──▶│headlines.clean│──▶│  ceo.scores  │──▶ index.html
- ├────────────────────┤  │   └──────────────┘   └──────────────┘   └──────────────┘    data.json
- │ outlet-rss (BBC…)  │──┤    keyed by CEO       syndicated copies   OpenAI scoring,        │
- │ ai-scout (OpenAI   │──┘                        collapsed to reach  heuristic fallback     │
+ ├────────────────────┤  │   ┌──────────────┐   ┌───────────────┐   ┌──────────────┐   ┌──────────────┐
+ │ gdelt (global API) │──┼──▶│ headlines.raw│──▶│headlines.routed│──▶│headlines.clean│──▶│  ceo.scores  │──▶ index.html
+ ├────────────────────┤  │   └──────────────┘   └───────────────┘   └──────────────┘   └──────────────┘    data.json
+ │ outlet-rss (BBC,   │──┤    keyed by CEO      LLM re-tags/drops    syndicated copies   OpenAI scoring,        │
+ │  Guardian, NYT…)   │──┘                       misattributed +      collapsed to reach  heuristic fallback     │
+ │ ai-scout (OpenAI   │                          off-angle stories                                       │
  │  web search)       │
- └────────────────────┘                         collapsed to reach  heuristic fallback     └─▶ GitHub Pages
+ └────────────────────┘                                                                                  └─▶ GitHub Pages
 ```
+
+**The LLM router.** Producers are dumb on purpose; the router
+(`pipeline/router.py`) is where headlines get redirected by the LLM:
+gpt-4o-mini re-checks every raw headline — which tracked CEO is it
+actually about, and is it actually a relationship-angle story? — then
+retags it into the right CEO stream or drops it. Without an API key it
+degrades to a deterministic surname + keyword fallback.
+
+**Picture checking.** Before render, the aggregator checks every
+picture: producer-supplied image URLs must answer 200 with an image
+content type (broken ones are dropped), and each CEO's top stories get
+the article's own `og:image` when no producer found one.
 
 **Why Kafka for a meme?** Three real properties, not just theatre:
 
@@ -82,6 +95,7 @@ commit: auditable, revertable, gloriously low-tech.
 | Topic | Key | Value |
 |---|---|---|
 | `headlines.raw` | CEO name | one record per headline found, `via` = which producer |
+| `headlines.routed` | CEO name | router-verified headlines — LLM/heuristic confirmed CEO + relationship angle |
 | `headlines.clean` | CEO name | one record per deduplicated story, with `reach` + `also_in` |
 | `ceo.scores` | CEO name | score, verdict, factors, story/placement counts |
 

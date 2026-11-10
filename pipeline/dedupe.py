@@ -16,7 +16,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from pipeline.common import (TOPIC_CLEAN, TOPIC_RAW, load_core,
+from pipeline.common import (TOPIC_CLEAN, TOPIC_ROUTED, load_core,
                                  stage_banner, transport_from_args)
 
 CORE = load_core()
@@ -93,7 +93,7 @@ def dedupe(records):
 
 def run(transport):
     stage_banner("dedupe")
-    raw = transport.consume_all(TOPIC_RAW, group="horniness-dedupe")
+    raw = transport.consume_all(TOPIC_ROUTED, group="horniness-dedupe")
     clean = dedupe(raw)
     by_ceo = {}
     for rec in clean:

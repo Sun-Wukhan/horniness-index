@@ -26,9 +26,10 @@ import sys
 import time
 
 TOPIC_RAW = "headlines.raw"
+TOPIC_ROUTED = "headlines.routed"
 TOPIC_CLEAN = "headlines.clean"
 TOPIC_SCORES = "ceo.scores"
-TOPICS = [TOPIC_RAW, TOPIC_CLEAN, TOPIC_SCORES]
+TOPICS = [TOPIC_RAW, TOPIC_ROUTED, TOPIC_CLEAN, TOPIC_SCORES]
 
 
 def load_core():

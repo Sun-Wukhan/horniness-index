@@ -97,7 +97,14 @@ OUTLET_FEEDS = [
     ("BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
     ("BBC Technology", "https://feeds.bbci.co.uk/news/technology/rss.xml"),
     ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?id=100003114"),
+    ("Guardian Business", "https://www.theguardian.com/business/rss"),
+    ("TechCrunch", "https://techcrunch.com/feed/"),
+    ("The Verge", "https://www.theverge.com/rss/index.xml"),
+    ("MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
+    ("NYT Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
 ]
+
+ATOM = "{http://www.w3.org/2005/Atom}"
 
 
 MRSS = "{http://search.yahoo.com/mrss/}"
@@ -125,19 +132,34 @@ def produce_outlet_rss(transport):
         except Exception as exc:
             print(f"[outlet-rss] {outlet}: fetch failed ({type(exc).__name__})")
             continue
-        items = list(root.iter("item"))
+        # Normalise RSS <item> and Atom <entry> into (title, desc, link, date, image)
+        norm = []
+        for item in root.iter("item"):
+            norm.append(((item.findtext("title") or "").strip(),
+                         item.findtext("description") or "",
+                         item.findtext("link") or "",
+                         item.findtext("pubDate") or "", item_image(item)))
+        for entry in root.iter(ATOM + "entry"):
+            link_el = entry.find(ATOM + "link")
+            norm.append(((entry.findtext(ATOM + "title") or "").strip(),
+                         entry.findtext(ATOM + "summary") or "",
+                         link_el.get("href") if link_el is not None else "",
+                         entry.findtext(ATOM + "updated") or "",
+                         item_image(entry)))
         kept = 0
-        for item in items:
-            title = (item.findtext("title") or "").strip()
-            desc = (item.findtext("description") or "")
+        for title, desc, link, date, image in norm:
+            hay = (title + " " + desc).lower()
+            if not REL_WORDS.search(hay):
+                continue
             for ceo in CORE.CEOS:
-                surname = ceo["name"].split()[-1]
-                if surname.lower() in (title + " " + desc).lower() and REL_WORDS.search(title + " " + desc):
-                    kept += emit(transport, ceo, title, item.findtext("link") or "",
-                                 item.findtext("pubDate") or "", outlet, "outlet-rss",
-                                 item_image(item))
+                surname = ceo["name"].split()[-1].lower()
+                # Whole-word surname match — "Cook" the verb is not Tim Cook.
+                # (The LLM router downstream re-checks every attribution.)
+                if re.search(r"\b" + re.escape(surname) + r"\b", hay):
+                    kept += emit(transport, ceo, title, link, date, outlet,
+                                 "outlet-rss", image)
                     break
-        print(f"[outlet-rss] {outlet}: {len(items)} items, {kept} matched")
+        print(f"[outlet-rss] {outlet}: {len(norm)} items, {kept} matched")
         total += kept
     return total
 

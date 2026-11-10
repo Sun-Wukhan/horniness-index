@@ -21,7 +21,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from pipeline import aggregator, dedupe, producers, scorer
+from pipeline import aggregator, dedupe, producers, router, scorer
 from pipeline.common import make_transport
 
 
@@ -40,6 +40,7 @@ def main():
             transport.ensure_topics()
             print(f"broker ready at {args.bootstrap}, topics ensured")
         producers.run(transport)
+        router.run(transport)
         dedupe.run(transport)
         scorer.run(transport)
         aggregator.run(transport, args.out)

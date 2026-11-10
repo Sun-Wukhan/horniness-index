@@ -596,30 +596,64 @@ def fetch_og_image(url):
         return ""
 
 
-def enrich_images(results, workers=10):
-    """Give each CEO's top non-Google story a picture when producers found
-    none (Google RSS carries no images; GDELT is often throttled). One
-    fetch per CEO, concurrent, best-effort — a missing picture never
-    blocks the page."""
+def image_ok(url):
+    """Is this picture actually there? 200 + an image content type."""
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0", "Range": "bytes=0-1023"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            ctype = resp.headers.get("Content-Type") or ""
+            return resp.status in (200, 206) and ctype.startswith("image/")
+    except Exception:
+        return False
+
+
+def enrich_images(results, workers=12):
+    """Picture pass, in two phases — every picture on the page is checked.
+
+    Phase 1 validates producer-supplied pictures: dead or non-image URLs
+    are dropped from their story. Phase 2 gives each CEO's top 3 stories
+    a picture via the article's own og:image when they have none (Google
+    RSS carries no images; GDELT is often throttled). Best-effort
+    throughout — a missing picture never blocks the page.
+    Returns {"valid": n, "dropped": n, "enriched": n}."""
     from concurrent.futures import ThreadPoolExecutor
-    jobs = {}
+    stats = {"valid": 0, "dropped": 0, "enriched": 0}
+    holders = {}
     for r in results:
         for h in r["headlines"]:
+            if h.get("image"):
+                holders.setdefault(h["image"], []).append(h)
+    if holders:
+        urls = list(holders)[:600]
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            oks = list(ex.map(image_ok, urls))
+        for url, ok in zip(urls, oks):
+            if ok:
+                stats["valid"] += 1
+            else:
+                stats["dropped"] += 1
+                for h in holders[url]:
+                    h["image"] = ""
+    jobs = {}
+    for r in results:
+        missing = 0
+        for h in r["headlines"]:
+            if missing >= 3:
+                break
             link = h.get("link") or ""
             if not h.get("image") and link.startswith("http") \
                     and "news.google.com" not in link:
                 jobs[id(h)] = (h, link)
-                break
-    if not jobs:
-        return 0
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        imgs = list(ex.map(lambda kv: fetch_og_image(kv[1][1]), jobs.items()))
-    n = 0
-    for (h, _link), img in zip([v for v in jobs.values()], imgs):
-        if img:
-            h["image"] = img
-            n += 1
-    return n
+                missing += 1
+    if jobs:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            imgs = list(ex.map(lambda kv: fetch_og_image(kv[1][1]), jobs.items()))
+        for (h, _link), img in zip(list(jobs.values()), imgs):
+            if img:
+                h["image"] = img
+                stats["enriched"] += 1
+    return stats
 
 
 def load_community(base_dir):
