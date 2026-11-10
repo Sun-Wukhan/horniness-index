@@ -45,6 +45,9 @@ def run(transport, out_dir):
             "newest_days": s.get("newest_days"), "last_seen": s.get("last_seen"),
             "stories_7d": s.get("stories_7d", 0), "stories_30d": s.get("stories_30d", 0),
         })
+    enriched = CORE.enrich_images(results)
+    if enriched:
+        print(f"aggregator: fetched og:image pictures for {enriched} CEOs")
     provider = scores[0]["provider"] if scores else "Kafka pipeline"
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     os.makedirs(out_dir, exist_ok=True)

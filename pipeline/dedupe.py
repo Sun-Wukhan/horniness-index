@@ -59,6 +59,8 @@ def dedupe(records):
             bucket.append(hit)
             order.append((ceo, hit))
         hit["placements"] += 1
+        if rec.get("image") and not hit.get("image"):
+            hit["image"] = rec["image"]
         # The story's date is its NEWEST placement's date: a 2019 scandal
         # syndicated again today is news today.
         cur = CORE.parse_date(hit.get("newest_date"))
@@ -78,6 +80,7 @@ def dedupe(records):
         out.append({
             "ceo": ceo, "company": rep["company"], "status": rep["status"],
             "title": rep["title"], "link": rep["link"],
+            "image": cl.get("image", ""),
             "date": cl.get("newest_date") or rep["date"],
             "source": rep["source"],
             "reach": max(cl["placements"], len(cl["outlets"])),

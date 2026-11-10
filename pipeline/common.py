@@ -52,7 +52,9 @@ class FileTransport:
     """Topics as JSONL files — local test harness for the stage logic."""
 
     def __init__(self, topic_dir):
+        import threading
         self.dir = topic_dir
+        self._lock = threading.Lock()
         os.makedirs(topic_dir, exist_ok=True)
         self._produced = []
 
@@ -60,9 +62,10 @@ class FileTransport:
         return os.path.join(self.dir, topic + ".jsonl")
 
     def produce(self, topic, key, value):
-        with open(self._path(topic), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"key": key, "value": value}) + "\n")
-        self._produced.append(topic)
+        with self._lock:
+            with open(self._path(topic), "a", encoding="utf-8") as f:
+                f.write(json.dumps({"key": key, "value": value}) + "\n")
+            self._produced.append(topic)
 
     def flush(self):
         pass

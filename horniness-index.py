@@ -198,6 +198,132 @@ CEOS = [
     },
 ]
 
+# --- S&P 500 top-100 CEOs (by index weight) -------------------------------
+# Built 2026-11-10: top 100 from slickcharts' S&P 500 weights, CEO names
+# from stockanalysis.com company pages, with manual corrections where the
+# parser grabbed the wrong executive (AAPL, DHR, COP, ETN, MO) and for
+# Netflix's co-CEO. Statuses are generic; the headlines decide the rest.
+_SP500_CEOS = [
+    ("Tim Cook", "Apple"),
+    ("Jensen Huang", "Nvidia Corp"),
+    ("Satya Nadella", "Microsoft Corp"),
+    ("Andrew Jassy", "Amazon"),
+    ("Sundar Pichai", "Alphabet / Google"),
+    ("Mark Zuckerberg", "Meta"),
+    ("Hock Tan", "Broadcom"),
+    ("Elon Musk", "Tesla"),
+    ("David Ricks", "Eli Lilly"),
+    ("Gregory Abel", "Berkshire Hathaway"),
+    ("John Furner", "Walmart"),
+    ("James Dimon", "JPMorgan Chase"),
+    ("Lisa Su", "Advanced Micro Devices"),
+    ("Sanjay Mehrotra", "Micron Technology"),
+    ("Ryan McInerney", "Visa"),
+    ("Joaquin Duato", "Johnson & Johnson"),
+    ("Darren Woods", "ExxonMobil Holdings"),
+    ("Michael Miebach", "Mastercard Incorporated"),
+    ("Robert Michael", "AbbVie"),
+    ("Ron Vachris", "Costco Wholesale Corp"),
+    ("Henrique Braun", "Coca-Cola Company"),
+    ("Michael Wirth", "Chevron"),
+    ("Alexander Karp", "Palantir Technologies"),
+    ("Shailesh Jejurikar", "Procter & Gamble Company"),
+    ("Charles Robbins", "Cisco Systems"),
+    ("Safra Catz", "Oracle Corp"),
+    ("Robert Davis", "Merck & Co."),
+    ("Stephen Hemsley", "UnitedHealth"),
+    ("Brian Moynihan", "Bank of America"),
+    ("Edward Decker", "Home Depot"),
+    ("Larry Culp", "GE Aerospace"),
+    ("Lip-Bu Tan", "Intel Corp"),
+    ("Jacek Olczak", "Philip Morris International"),
+    ("Gary Dickerson", "Applied Materials Inc"),
+    ("Edward Pick", "Morgan Stanley"),
+    ("Timothy Archer", "Lam Research Corp"),
+    ("Haviv Ilan", "Texas Instruments Incorporated"),
+    ("Nikesh Arora", "Palo Alto Networks"),
+    ("Christopher Calio", "Rtx"),
+    ("Joseph Creed", "Caterpillar"),
+    ("Marc Casper", "Thermo Fisher Scientific"),
+    ("David Solomon", "Goldman Sachs Group"),
+    ("Charles Scharf", "Wells Fargo & Co."),
+    ("Ted Sarandos", "NetFlix Inc"),
+    ("Robert Bradway", "Amgen Inc"),
+    ("Jayshree Ullal", "Arista Networks"),
+    ("Sanjiv Lamba", "Linde plc Ordinary Share"),
+    ("George Kurtz", "CrowdStrike Holdings"),
+    ("Arvind Krishna", "International Business Machines"),
+    ("Stephen Squeri", "American Express Company"),
+    ("Michael Dell", "Dell Technologies"),
+    ("Daniel O'Day", "Gilead Sciences Inc"),
+    ("Scott Strazik", "GE Vernova"),
+    ("Josh D’Amaro", "The Walt Disney Company"),
+    ("Jane Fraser", "Citigroup"),
+    ("Richard Wallace", "Kla"),
+    ("Adam Norwitt", "Amphenol"),
+    ("Christopher Kempczinski", "McDonald's"),
+    ("Ramon Laguarta", "PepsiCo"),
+    ("Daniel Schulman", "Verizon Communications"),
+    ("Vincent Roche", "Analog Devices"),
+    ("Robert Ford", "Abbott Laboratories"),
+    ("Laurence Fink", "Blackrock"),
+    ("Cristiano Amon", "Qualcomm Inc"),
+    ("John May", "Deere & Company"),
+    ("John Ketchum", "NextEra Energy"),
+    ("Shankh Mitra", "Welltower"),
+    ("Srinivasan Gopalan", "T-Mobile US"),
+    ("Marc Benioff", "Salesforce"),
+    ("Vincenzo Vena", "Union Pacific Corp."),
+    ("Albert Bourla", "Pfizer"),
+    ("Rainer Blair", "Danaher"),
+    ("Richard Wurster", "The Charles Schwab"),
+    ("David Rosa", "Intuitive Surgical"),
+    ("Ryan Lance", "ConocoPhillips"),
+    ("Ernie Herrman", "TJX Companies"),
+    ("Julie T. Sweet", "Accenture PLC"),
+    ("John Stankey", "At&T"),
+    ("Dara Khosrowshahi", "Uber Technologies"),
+    ("Matthew Murphy", "Marvell Technology"),
+    ("Evan Greenberg", "Chubb Limited"),
+    ("Reshma Kewalramani", "Vertex Pharmaceuticals Inc"),
+    ("Craig Arnold", "Eaton Corporation, plc"),
+    ("James Taiclet", "Lockheed Martin Corp."),
+    ("Robert Ortberg", "Boeing Company"),
+    ("Martina Cheung", "S&P Global"),
+    ("Adam Foroughi", "Applovin"),
+    ("Susan Griffith", "Progressive"),
+    ("Geoffrey Martha", "Medtronic plc"),
+    ("Marvin Ellison", "Lowe's Companies"),
+    ("David V. Goeckeler", "Sandisk"),
+    ("Billy Gifford", "Altria Group"),
+    ("Christopher Boerner", "Bristol-Myers Squibb Co."),
+    ("Natascha Viljoen", "Newmont"),
+    ("Brian Niccol", "Starbucks Corp"),
+    ("Daniel Letter", "Prologis"),
+    ("Brian Tyler", "McKesson"),
+    ("Kevin Lobo", "Stryker"),
+    ("Glenn Fogel", "Booking Holdings"),
+    ("Jennifer A. Parmentier", "Parker-Hannifin"),
+    ("Richard Fairbank", "Capital One Financial"),
+    ("Maria Black", "Automatic Data Processing"),
+    ("William Mosley", "Seagate Technology Holdings PLC Ordinary Shares (Ireland)"),
+    ("Brian Chesky", "Airbnb"),
+    ("David Joyner", "CVS Health"),
+    ("Tiang Yew Tan", "Western Digital Corp."),
+    ("Terrence Duffy", "CME Group"),
+    ("Christopher Womack", "The Southern Company"),
+    ("Anthony Capuano", "Marriott International")
+]
+_seen_names = {c["name"].lower() for c in CEOS}
+for _name, _company in _SP500_CEOS:
+    if _name.lower() not in _seen_names:
+        _seen_names.add(_name.lower())
+        CEOS.append({
+            "name": _name, "company": _company,
+            "status": "CEO, in post (S&P 500 top 100)",
+            "queries": [f'"{_name}" affair OR relationship OR divorce OR dating OR wife OR husband'],
+        })
+
 MAX_HEADLINES_PER_CEO = 10
 
 # Heuristic weights: (keyword regex, points, label)
@@ -236,7 +362,10 @@ def fetch_headlines(queries):
             if not title or key in seen:
                 continue
             seen.add(key)
-            out.append({"title": title, "link": link, "date": pub, "source": source})
+            desc = item.findtext("description") or ""
+            imgm = re.search(r'<img[^>]+src="([^"]+)"', desc)
+            out.append({"title": title, "link": link, "date": pub, "source": source,
+                        "image": imgm.group(1) if imgm else ""})
             if len(out) >= MAX_HEADLINES_PER_CEO:
                 return out
     return out
@@ -451,6 +580,48 @@ def band_verdict(score):
     return "Cleaner than the company's own code of conduct."
 
 
+def fetch_og_image(url):
+    """The article's own picture (og:image / twitter:image), if it has one."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            if "html" not in (resp.headers.get("Content-Type") or ""):
+                return ""
+            data = resp.read(262144).decode("utf-8", "replace")
+        m = (re.search(r'property="og:image"\s+content="([^"]+)"', data)
+             or re.search(r'name="twitter:image"\s+content="([^"]+)"', data)
+             or re.search(r'content="([^"]+)"\s+property="og:image"', data))
+        return m.group(1) if m else ""
+    except Exception:
+        return ""
+
+
+def enrich_images(results, workers=10):
+    """Give each CEO's top non-Google story a picture when producers found
+    none (Google RSS carries no images; GDELT is often throttled). One
+    fetch per CEO, concurrent, best-effort — a missing picture never
+    blocks the page."""
+    from concurrent.futures import ThreadPoolExecutor
+    jobs = {}
+    for r in results:
+        for h in r["headlines"]:
+            link = h.get("link") or ""
+            if not h.get("image") and link.startswith("http") \
+                    and "news.google.com" not in link:
+                jobs[id(h)] = (h, link)
+                break
+    if not jobs:
+        return 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        imgs = list(ex.map(lambda kv: fetch_og_image(kv[1][1]), jobs.items()))
+    n = 0
+    for (h, _link), img in zip([v for v in jobs.values()], imgs):
+        if img:
+            h["image"] = img
+            n += 1
+    return n
+
+
 def load_community(base_dir):
     """The community database: community.csv in the repo root."""
     import csv
@@ -478,9 +649,17 @@ def render(results, provider, generated, community=None):
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
 
     def card(r, i, hall=False):
+        def _thumb(h):
+            if h.get("image"):
+                return (f'<img class="thumb" src="{html.escape(h["image"])}" alt="" '
+                        f'loading="lazy" onerror="this.remove()">')
+            return ""
         heads = "".join(
-            f'<li><a href="{html.escape(h["link"])}" target="_blank" rel="noopener">'
+            f'<li>{_thumb(h)}<a href="{html.escape(h["link"])}" target="_blank" rel="noopener">'
             f'{html.escape(h["title"])}</a></li>' for h in r["headlines"][:5])
+        feat_h = next((h for h in r["headlines"] if h.get("image")), None)
+        feat = (f'<img class="feat" src="{html.escape(feat_h["image"])}" alt="" '
+                f'loading="lazy" onerror="this.remove()">') if feat_h else ""
         factors = "".join(f"<li>{html.escape(f)}</li>" for f in r["factors"])
         verdict = html.escape(r["verdict"]) if r["verdict"] else band_verdict(r["score"])
         shown = r.get("legacy_score", r["score"]) if hall else r["score"]
@@ -505,6 +684,7 @@ def render(results, provider, generated, community=None):
 <article class="card{' top' if not hall and i == 1 else ''}">
   <div class="rank">{medal or '#' + str(i)}</div>
   <div class="main">
+    {feat}
     <h2>{html.escape(r['name'])}{crown} <span class="co">{html.escape(r['company'])} · {html.escape(r['status'])}</span></h2>
     <p class="sig">{pulse}{html.escape(r.get('signal_label', ''))}</p>
     <div class="meter"><div class="bar" style="width:{shown}%"></div><span class="score">{shown}/100 · {label}</span></div>
@@ -604,6 +784,8 @@ ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#8b8b96;font-size:.83rem;line
 .comm{{background:#12121a;border:1px solid #2c2c38;border-radius:16px;padding:20px;margin:30px 0}}
 .nombtn{{display:inline-block;background:#c9184a;color:#fff;border-radius:8px;padding:10px 18px;font-weight:700;text-decoration:none}}
 .nom{{border-top:1px solid #2c2c38;padding:10px 0}}
+.feat{{width:100%;height:150px;object-fit:cover;border-radius:10px;margin-bottom:10px;background:#222}}
+.thumb{{width:40px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px;background:#222}}
 </style></head><body>
 <header class="hero">
 <h1>📈🍆 The Horniness Index™</h1>
@@ -666,6 +848,7 @@ def main():
                         "factors": factors, "verdict": verdict,
                         **compute_signals(headlines)})
         print(f"{ceo['name']}: {score} from {len(headlines)} headlines")
+    enrich_images(results)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(render(results, provider, generated, load_community(os.path.dirname(os.path.abspath(__file__)))))

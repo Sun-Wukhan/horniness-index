@@ -41,6 +41,13 @@ share-price moves, headline volume. Without an API key, a deterministic
 keyword heuristic scores instead — the page always builds.
 
 
+**Roster.** 122 CEOs: a hand-picked hall of legends plus the S&P 500's
+top 100 companies by index weight (slickcharts) with their current CEOs
+(stockanalysis.com, hand-corrected where the parser grabbed the wrong
+executive). Article pictures come from the stories themselves — GDELT
+social images, RSS media thumbnails, and an og:image enrichment pass for
+each CEO's top story.
+
 **Signals & current heat.** Every CEO carries two numbers. *Current heat*
 is the headline score with story points decayed by age (a story today
 counts ~12x a year-old one), so the main board answers "what is happening

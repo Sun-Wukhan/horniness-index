@@ -32,24 +32,29 @@ REL_WORDS = re.compile(r"affair|dating|relationship|divorce|wife|husband|girlfri
                        r"boyfriend|kiss|scandal|lover|mistress|romanc", re.I)
 
 
-def emit(transport, ceo, title, link, date, source, via):
+def emit(transport, ceo, title, link, date, source, via, image=""):
     transport.produce(TOPIC_RAW, ceo["name"], {
         "ceo": ceo["name"], "company": ceo["company"], "status": ceo["status"],
         "title": title, "link": link, "date": date, "source": source,
+        "image": image or "",
         "via": via, "fetched_at": datetime.now(timezone.utc).isoformat(),
     })
     return 1
 
 
 def produce_google_news(transport):
-    total = 0
-    for ceo in CORE.CEOS:
+    """Concurrent: 120+ CEOs x RSS fetches would take minutes serially."""
+    from concurrent.futures import ThreadPoolExecutor
+    def one(ceo):
         heads = CORE.fetch_headlines(ceo["queries"])
+        n = 0
         for h in heads:
-            total += emit(transport, ceo, h["title"], h["link"], h["date"],
-                          h["source"], "google-news")
+            n += emit(transport, ceo, h["title"], h["link"], h["date"],
+                      h["source"], "google-news", h.get("image", ""))
         print(f"[google-news] {ceo['name']}: {len(heads)}")
-    return total
+        return n
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        return sum(ex.map(one, CORE.CEOS))
 
 
 def produce_gdelt(transport):
@@ -82,7 +87,8 @@ def produce_gdelt(transport):
             title = (a.get("title") or "").strip()
             if title:
                 total += emit(transport, ceo, title, a.get("url", ""),
-                              a.get("seendate", ""), a.get("domain", "gdelt"), "gdelt")
+                              a.get("seendate", ""), a.get("domain", "gdelt"), "gdelt",
+                              a.get("socialimage", ""))
         print(f"[gdelt] {ceo['name']}: {len(arts)}")
     return total
 
@@ -92,6 +98,22 @@ OUTLET_FEEDS = [
     ("BBC Technology", "https://feeds.bbci.co.uk/news/technology/rss.xml"),
     ("CNBC", "https://search.cnbc.com/rs/search/combinedcms/view.xml?id=100003114"),
 ]
+
+
+MRSS = "{http://search.yahoo.com/mrss/}"
+
+
+def item_image(item):
+    """Best-effort article picture from an RSS item (media:content /
+    media:thumbnail / image enclosure)."""
+    for tag in ("content", "thumbnail"):
+        el = item.find(MRSS + tag)
+        if el is not None and el.get("url"):
+            return el.get("url")
+    enc = item.find("enclosure")
+    if enc is not None and enc.get("url"):
+        return enc.get("url")
+    return ""
 
 
 def produce_outlet_rss(transport):
@@ -112,7 +134,8 @@ def produce_outlet_rss(transport):
                 surname = ceo["name"].split()[-1]
                 if surname.lower() in (title + " " + desc).lower() and REL_WORDS.search(title + " " + desc):
                     kept += emit(transport, ceo, title, item.findtext("link") or "",
-                                 item.findtext("pubDate") or "", outlet, "outlet-rss")
+                                 item.findtext("pubDate") or "", outlet, "outlet-rss",
+                                 item_image(item))
                     break
         print(f"[outlet-rss] {outlet}: {len(items)} items, {kept} matched")
         total += kept
@@ -140,8 +163,9 @@ def produce_ai_scout(transport):
     if not key:
         print("[ai-scout] no OPENAI_API_KEY — skipping")
         return 0
-    total = 0
-    for ceo in CORE.CEOS:
+    from concurrent.futures import ThreadPoolExecutor
+    def scout_one(ceo):
+        kept = 0
         try:
             body = json.dumps({
                 "model": os.environ.get("HORNINESS_SCOUT_MODEL") or "gpt-4o-mini",
@@ -175,11 +199,12 @@ def produce_ai_scout(transport):
                 kept += emit(transport, ceo, title, str(h.get("url", "")),
                              str(h.get("date", "")), str(h.get("source", "web")),
                              "ai-scout")
-            total += kept
             print(f"[ai-scout] {ceo['name']}: {kept}")
         except Exception as exc:
             print(f"[ai-scout] {ceo['name']}: failed ({type(exc).__name__}) — non-fatal")
-    return total
+        return kept
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        return sum(ex.map(scout_one, CORE.CEOS))
 
 
 PRODUCERS = {"google-news": produce_google_news, "gdelt": produce_gdelt,

@@ -26,8 +26,8 @@ def run(transport):
     for rec in clean:
         by_ceo[rec["ceo"]].append(rec)
     provider = "headline-keyword heuristic (no AI key / AI unavailable)"
-    scores = []
-    for ceo in CORE.CEOS:
+
+    def score_one(ceo):
         stories = sorted(by_ceo.get(ceo["name"], []), key=lambda r: -r["reach"])
         placements = sum(s["reach"] for s in stories)
         scored, verdict = None, ""
@@ -36,8 +36,9 @@ def run(transport):
         except Exception:
             scored = None
         legacy, _lf = CORE.legacy_heuristic_score(stories)
+        used_ai = False
         if scored:
-            provider = "Kafka pipeline · AI-scored (OpenAI) from live headlines"
+            used_ai = True
             score, factors = scored["score"], list(scored["factors"])
             verdict = scored["verdict"]
         else:
@@ -51,9 +52,20 @@ def run(transport):
                "factors": factors, "provider": provider,
                "stories": len(stories), "placements": placements,
                **CORE.compute_signals(stories)}
-        transport.produce(TOPIC_SCORES, ceo["name"], rec)
-        scores.append(rec)
         print(f"scorer: {ceo['name']}: {score} ({len(stories)} stories, {placements} placements)")
+        return rec, used_ai
+
+    # 120+ CEOs: AI scoring calls run concurrently (order preserved).
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        outcomes = list(ex.map(score_one, CORE.CEOS))
+    if any(u for _, u in outcomes):
+        provider = "Kafka pipeline · AI-scored (OpenAI) from live headlines"
+    scores = []
+    for rec, _u in outcomes:
+        rec["provider"] = provider
+        transport.produce(TOPIC_SCORES, rec["ceo"], rec)
+        scores.append(rec)
     transport.flush()
     print(f"scorer: {len(scores)} CEOs -> {TOPIC_SCORES} [{provider}]")
     return scores
