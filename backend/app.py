@@ -122,19 +122,24 @@ def health():
 
 
 @app.post("/submit")
-async def submit(request: Request):
-    form = await request.form()
-    if form.get("website"):  # honeypot — humans never see this field
+def submit(request: Request, ceo_name: str = Form(""),
+           company: str = Form(""), reason: str = Form(""),
+           receipts: str = Form(""), website: str = Form("")):
+    # NOTE: a plain def, not async — the GitHub call below is blocking
+    # I/O; FastAPI runs sync endpoints in a threadpool. An async version
+    # froze the whole event loop (and every other request) for the
+    # duration of the GitHub call. Diagnosed live on day one.
+    if website:  # honeypot — humans never see this field
         return JSONResponse({"ok": True})
     ip = request.client.host if request.client else "?"
     if not rate_ok(ip):
         return JSONResponse({"ok": False, "error": "Slow down — too many "
                              "submissions from this connection. Try later."},
                             status_code=429)
-    name = clean(form.get("ceo_name"), 80)
-    company = clean(form.get("company"), 80)
-    reason = clean(form.get("reason"), 500)
-    receipts = clean(form.get("receipts"), 300)
+    name = clean(ceo_name, 80)
+    company = clean(company, 80)
+    reason = clean(reason, 500)
+    receipts = clean(receipts, 300)
     if len(name) < 2 or len(reason) < 10:
         return JSONResponse({"ok": False, "error": "Needs a CEO name and a "
                              "real update (10+ characters)."}, status_code=400)
