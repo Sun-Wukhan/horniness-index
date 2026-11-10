@@ -672,35 +672,52 @@ def load_community(base_dir):
 
 
 TIP_FORM = """
-<form class="tip" onsubmit="return submitTip(event)">
+<form class="tip" id="tipform" onsubmit="return submitTip(event)">
 <label>CEO name *</label>
-<input id="f-name" required minlength="2" placeholder="e.g. Jane Q. Executive">
+<input id="f-name" name="ceo_name" required minlength="2" placeholder="e.g. Jane Q. Executive">
 <label>Company</label>
-<input id="f-company" placeholder="e.g. ExampleCorp (NYSE: EXMP)">
+<input id="f-company" name="company" placeholder="e.g. ExampleCorp (NYSE: EXMP)">
 <label>What's the update? *</label>
-<textarea id="f-reason" required minlength="10" rows="4" placeholder="A new nomination, a fresh headline about a listed CEO, a correction — the saga, in brief. What do the headlines say?"></textarea>
+<textarea id="f-reason" name="reason" required minlength="10" rows="4" placeholder="A new nomination, a fresh headline about a listed CEO, a correction — the saga, in brief. What do the headlines say?"></textarea>
 <label>Receipts (links)</label>
-<textarea id="f-receipts" rows="2" placeholder="Headline links backing this up — one per line"></textarea>
-<button class="nombtn" type="submit">📨 Submit for review</button>
-<p class="sub2">Submitting opens a pre-filled GitHub issue in a new tab (a GitHub
-account is needed to post it — that is the spam gate). Nothing goes live
-automatically: the maintainer approves it, the bot files it into
-<code>community.csv</code>, and it appears here as a 🟡 WATCH community
-signal on the next build. Prefer the classic route?
-<a href="https://github.com/Sun-Wukhan/horniness-index/issues/new?template=nominate-ceo.yml" target="_blank" rel="noopener">Use the GitHub form instead</a>.</p>
+<textarea id="f-receipts" name="receipts" rows="2" placeholder="Headline links backing this up — one per line"></textarea>
+<input id="f-website" name="website" style="display:none" tabindex="-1" autocomplete="off">
+<button class="nombtn" type="submit" id="f-send">📨 Submit for review</button>
+<p class="sub2" id="f-msg">No GitHub account needed — submissions go to the
+maintainer's review queue, and approved ones join <code>community.csv</code>
+and appear here as 🟡 WATCH community signals on the next build. Nothing
+goes live unreviewed.</p>
 </form>
 <script>
+var API_BASE = "https://horniness-index-api.onrender.com";
 function submitTip(e) {
   e.preventDefault();
   var v = function(id) { return document.getElementById(id).value.trim(); };
-  var body = "### CEO name\n" + v('f-name') +
-    "\n\n### Company\n" + v('f-company') +
-    "\n\n### Why they belong on the Index\n" + v('f-reason') +
-    "\n\n### Receipts (links)\n" + v('f-receipts') + "\n";
-  var url = "https://github.com/Sun-Wukhan/horniness-index/issues/new?labels=nomination" +
-    "&title=" + encodeURIComponent("Nominate: " + v('f-name')) +
-    "&body=" + encodeURIComponent(body);
-  window.open(url, '_blank');
+  var msg = document.getElementById('f-msg');
+  var btn = document.getElementById('f-send');
+  btn.disabled = true; msg.textContent = "Filing your submission…";
+  var fd = new FormData(document.getElementById('tipform'));
+  fetch(API_BASE + "/submit", {method: "POST", body: fd})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        msg.innerHTML = "✅ <strong>Submitted!</strong> It's in the review queue — once approved it joins the community watchlist on the next build.";
+        document.getElementById('tipform').reset();
+      } else { throw new Error(d.error || "failed"); }
+    })
+    .catch(function(err) {
+      // Fallback: hand off to a pre-filled GitHub issue instead.
+      msg.textContent = "The direct queue is unreachable — opening the GitHub route instead…";
+      var body = "### CEO name\n" + v('f-name') +
+        "\n\n### Company\n" + v('f-company') +
+        "\n\n### Why they belong on the Index\n" + v('f-reason') +
+        "\n\n### Receipts (links)\n" + v('f-receipts') + "\n";
+      var url = "https://github.com/Sun-Wukhan/horniness-index/issues/new?labels=nomination" +
+        "&title=" + encodeURIComponent("Nominate: " + v('f-name')) +
+        "&body=" + encodeURIComponent(body);
+      window.open(url, '_blank');
+    })
+    .finally(function() { btn.disabled = false; });
   return false;
 }
 </script>

@@ -70,6 +70,12 @@ now": 🔴 **LIVE** (multiple fresh stories this week) · 🟠 **DEVELOPING**
 the Hall of Fame with their *historical peak* (the undecayed score)
 preserved. Signals are computed from story dates, not vibes.
 
+**Direct submissions (backend).** `backend/` is a small FastAPI
+service (Render, `render.yaml`): anyone can post from the site's form —
+no GitHub account — and submissions land as GitHub issues in a review
+queue. The maintainer approves/rejects in its `/admin` view; approvals
+flow into the same CSV pipeline below. Setup: `backend/README.md`.
+
 **Community nominations (the database is a CSV).** `community.csv` in
 this repo is the community database. Anyone can nominate a CEO via the
 GitHub Issue Form; when a maintainer adds the `approved` label, the
