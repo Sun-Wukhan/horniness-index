@@ -84,18 +84,36 @@ class FileTransport:
 
 
 class KafkaTransport:
-    """Real Kafka/Redpanda transport (kafka-python-ng)."""
+    """Real Kafka/Redpanda transport (kafka-python-ng).
+
+    The producer is created LAZILY, on first use. KafkaProducer's
+    constructor connects and probes the broker's API version immediately,
+    so constructing it before the broker is listening kills the run with
+    kafka-python's infamous `ValueError: Invalid file object: None`
+    (learned from CI run 42832665963, where Redpanda needed a few more
+    seconds). wait_ready() must pass before anything touches the producer.
+    api_version is pinned for the same reason: version probing during a
+    broker's start-up window is exactly what breaks.
+    """
+
+    API_VERSION = (3, 5, 0)
 
     def __init__(self, bootstrap):
-        from kafka import KafkaProducer
         self.bootstrap = bootstrap
-        self._producer = KafkaProducer(
-            bootstrap_servers=bootstrap,
-            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-            key_serializer=lambda k: k.encode("utf-8") if k else None,
-            acks="all",
-            retries=5,
-        )
+        self._producer = None
+
+    def _ensure_producer(self):
+        if self._producer is None:
+            from kafka import KafkaProducer
+            self._producer = KafkaProducer(
+                bootstrap_servers=self.bootstrap,
+                api_version=self.API_VERSION,
+                value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+                key_serializer=lambda k: k.encode("utf-8") if k else None,
+                acks="all",
+                retries=5,
+            )
+        return self._producer
 
     def ensure_topics(self, partitions=8):
         from kafka.admin import KafkaAdminClient, NewTopic
@@ -108,7 +126,7 @@ class KafkaTransport:
         finally:
             admin.close()
 
-    def wait_ready(self, timeout=90):
+    def wait_ready(self, timeout=120):
         """Block until the broker answers metadata requests."""
         from kafka import KafkaConsumer
         deadline = time.time() + timeout
@@ -116,6 +134,7 @@ class KafkaTransport:
         while time.time() < deadline:
             try:
                 c = KafkaConsumer(bootstrap_servers=self.bootstrap,
+                                  api_version=self.API_VERSION,
                                   consumer_timeout_ms=2000)
                 c.topics()
                 c.close()
@@ -126,10 +145,11 @@ class KafkaTransport:
         raise RuntimeError(f"broker at {self.bootstrap} not ready: {last}")
 
     def produce(self, topic, key, value):
-        self._producer.send(topic, key=key, value=value)
+        self._ensure_producer().send(topic, key=key, value=value)
 
     def flush(self):
-        self._producer.flush(timeout=60)
+        if self._producer is not None:
+            self._producer.flush(timeout=60)
 
     def consume_all(self, topic, group=None, idle_seconds=10):
         """Batch-drain a topic: read from the beginning until it has been
@@ -139,6 +159,7 @@ class KafkaTransport:
         consumer = KafkaConsumer(
             topic,
             bootstrap_servers=self.bootstrap,
+            api_version=self.API_VERSION,
             group_id=group or f"horniness-{topic}-{int(time.time())}",
             auto_offset_reset="earliest",
             enable_auto_commit=True,
@@ -156,10 +177,11 @@ class KafkaTransport:
         return out
 
     def close(self):
-        try:
-            self._producer.close(timeout=10)
-        except Exception:
-            pass
+        if self._producer is not None:
+            try:
+                self._producer.close(timeout=10)
+            except Exception:
+                pass
 
 
 def stage_banner(name):

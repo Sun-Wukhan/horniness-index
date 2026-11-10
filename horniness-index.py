@@ -217,64 +217,121 @@ def ai_score(ceo, headlines):
 
 
 def risk_label(score):
-    if score >= 80: return "☢️ BOARD-LEVEL EMERGENCY"
-    if score >= 60: return "🔥 SEVERE — shareholders sweating"
-    if score >= 40: return "🌡️ ELEVATED — PR team on standby"
-    if score >= 20: return "😐 SIMMERING — mostly gossip"
-    return "🧊 ICE COLD — married to the job"
+    if score >= 90: return "☢️ DEFCON 1 — HR, Legal and the board have a group chat"
+    if score >= 80: return "🔥 BOARD-LEVEL EMERGENCY — the group chat has lawyers now"
+    if score >= 60: return "🥵 SEVERE — PR is drafting statements 'just in case'"
+    if score >= 40: return "🌡️ ELEVATED — comms has a folder with his name on it"
+    if score >= 20: return "😐 SIMMERING — gossip, mostly harmless"
+    return "🧊 ICE COLD — married to the job, and the job is winning"
+
+
+def band_verdict(score):
+    """Snark for when there is no AI verdict to quote."""
+    if score >= 90: return "The headlines read like a board pack marked URGENT."
+    if score >= 80: return "Somewhere, a general counsel just felt a disturbance."
+    if score >= 60: return "The tabloids know his hotel preferences. Allegedly."
+    if score >= 40: return "Nothing proven. Everything screenshotted."
+    if score >= 20: return "Mostly smoke, and the smoke is just vape."
+    return "Cleaner than the company's own code of conduct."
 
 
 def render(results, provider, generated):
+    results = sorted(results, key=lambda x: -x["score"])
+    top = results[0] if results else None
+    total_stories = sum(len(r["headlines"]) for r in results)
+    avg = round(sum(r["score"] for r in results) / len(results)) if results else 0
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     rows = []
-    for i, r in enumerate(sorted(results, key=lambda x: -x["score"]), 1):
+    for i, r in enumerate(results, 1):
         heads = "".join(
             f'<li><a href="{html.escape(h["link"])}" target="_blank" rel="noopener">'
-            f'{html.escape(h["title"])}</a></li>' for h in r["headlines"][:5])
+            f'{html.escape(h["title"])}</a></li>' for r_h in [r] for h in r_h["headlines"][:5])
         factors = "".join(f"<li>{html.escape(f)}</li>" for f in r["factors"])
-        verdict = html.escape(r["verdict"]) if r["verdict"] else ""
+        verdict = html.escape(r["verdict"]) if r["verdict"] else band_verdict(r["score"])
+        medal = medals.get(i, "")
+        crown = ' <span class="crown">👑 CHIEF HORNY OFFICER</span>' if i == 1 else ""
+        reach = ""
+        if r.get("stories") is not None:
+            reach = (f'<p class="reach">🗞️ {r["stories"]} distinct stories · '
+                     f'{r.get("placements", r["stories"])} total placements '
+                     f'(syndication counts — one scandal, everywhere)</p>')
         rows.append(f"""
-<article class="card">
-  <div class="rank">#{i}</div>
+<article class="card{' top' if i == 1 else ''}">
+  <div class="rank">{medal or '#' + str(i)}</div>
   <div class="main">
-    <h2>{html.escape(r['name'])} <span class="co">{html.escape(r['company'])} · {html.escape(r['status'])}</span></h2>
+    <h2>{html.escape(r['name'])}{crown} <span class="co">{html.escape(r['company'])} · {html.escape(r['status'])}</span></h2>
     <div class="meter"><div class="bar" style="width:{r['score']}%"></div><span class="score">{r['score']}/100</span></div>
     <p class="risk">{risk_label(r['score'])}</p>
-    {f'<p class="verdict">“{verdict}”</p>' if verdict else ''}
-    <details><summary>Why — signals &amp; top headlines</summary>
+    <p class="verdict">“{verdict}”</p>
+    {reach}
+    <details><summary>Receipts — signals &amp; top headlines</summary>
       <ul class="factors">{factors}</ul><ul class="heads">{heads}</ul></details>
   </div>
 </article>""")
+    alert = ""
+    if top:
+        alert = (f'<div class="alert">🚨 <strong>MARKET ALERT:</strong> {html.escape(top["name"])} '
+                 f'tops the Index at {top["score"]}/100. Shareholders are advised to hold — '
+                 f'preferably onto something sturdy.</div>')
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>The Horniness Index — CEO Shareholder-Risk Leaderboard</title>
+<title>The Horniness Index™ — CEO Shareholder-Risk Leaderboard</title>
+<meta name="description" content="A satirical, Kafka-powered leaderboard scoring CEOs on the shareholder-value risk of their relationship headlines.">
 <style>
-body{{background:#111;color:#eee;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:860px;margin:0 auto;padding:24px 16px 64px}}
-h1{{font-size:2.2rem;margin-bottom:4px}} .sub{{color:#bbb;margin-top:0}}
-.card{{display:flex;gap:16px;background:#1c1c22;border:1px solid #333;border-radius:14px;padding:18px;margin:14px 0}}
-.rank{{font-size:1.6rem;font-weight:800;color:#ff5c8a;min-width:44px}}
-.co{{color:#999;font-size:.85rem;font-weight:400}} h2{{margin:0 0 10px;font-size:1.25rem}}
-.meter{{position:relative;background:#333;border-radius:8px;height:22px;overflow:hidden}}
-.bar{{height:100%;background:linear-gradient(90deg,#ffb347,#ff5c8a,#c9184a)}}
-.score{{position:absolute;right:8px;top:2px;font-weight:700;font-size:.9rem}}
+*{{box-sizing:border-box}}
+body{{background:#0d0d12;color:#f2f2f5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:880px;margin:0 auto;padding:0 16px 64px}}
+.hero{{background:linear-gradient(135deg,#2b0a1e,#4a1030 45%,#1a1033);border:1px solid #5a2342;border-radius:0 0 20px 20px;padding:34px 24px 24px;text-align:center}}
+h1{{font-size:2.6rem;margin:0 0 6px;letter-spacing:-.5px}}
+.tag{{color:#ffb3c6;margin:0;font-size:1.05rem}}
+.alert{{background:#3d0a16;border:1px solid #ff5c8a;border-radius:12px;padding:12px 16px;margin:18px 0;font-size:.98rem}}
+.stats{{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}}
+.stat{{flex:1 1 140px;background:#17171f;border:1px solid #2c2c38;border-radius:12px;padding:12px;text-align:center}}
+.stat b{{display:block;font-size:1.35rem;color:#ff8fab}}
+.stat span{{color:#aaa;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}}
+.card{{display:flex;gap:16px;background:#17171f;border:1px solid #2c2c38;border-radius:16px;padding:18px;margin:14px 0;transition:transform .15s ease,border-color .15s ease}}
+.card:hover{{transform:translateY(-2px);border-color:#ff5c8a}}
+.card.top{{border:2px solid #ffb703;background:linear-gradient(180deg,#241a08,#17171f)}}
+.rank{{font-size:1.9rem;font-weight:800;min-width:52px;text-align:center}}
+.co{{color:#999;font-size:.85rem;font-weight:400}} .crown{{color:#ffb703;font-size:.8rem;font-weight:800;letter-spacing:.05em}}
+h2{{margin:0 0 10px;font-size:1.3rem}}
+.meter{{position:relative;background:#2a2a35;border-radius:8px;height:24px;overflow:hidden}}
+.bar{{height:100%;background:linear-gradient(90deg,#ffb347,#ff5c8a,#c9184a);animation:shimmer 2.4s linear infinite;background-size:200% 100%}}
+@keyframes shimmer{{0%{{background-position:0% 0}}100%{{background-position:200% 0}}}}
+.score{{position:absolute;right:8px;top:3px;font-weight:800;font-size:.92rem;text-shadow:0 1px 3px #000}}
 .risk{{font-weight:700;margin:10px 0 4px}} .verdict{{color:#ffd6e0;font-style:italic;margin:4px 0}}
+.reach{{color:#9fd8ff;font-size:.86rem;margin:4px 0}}
 details{{margin-top:8px}} summary{{cursor:pointer;color:#8ecae6}}
-ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#888;font-size:.82rem;line-height:1.5;margin-top:28px}}
+ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#8b8b96;font-size:.83rem;line-height:1.55;margin-top:26px}}
+.badge{{display:inline-block;background:#26262f;border:1px solid #3a3a48;border-radius:999px;padding:3px 10px;font-size:.78rem;color:#ccc}}
 </style></head><body>
-<h1>📈🍆 The Horniness Index</h1>
-<p class="sub">Tracking public-company CEOs, their relationship headlines, and the risk of
-blowing up shareholder value by being too horny. Updated {generated} · Scoring: {provider}</p>
+<header class="hero">
+<h1>📈🍆 The Horniness Index™</h1>
+<p class="tag">Quantifying CEO downside risk, one headline at a time.<br>
+Tracking public-company CEOs, their dating lives, travel plans, and the probability of blowing up shareholder value.</p>
+<p><span class="badge">🕒 Updated {generated} UTC</span> <span class="badge">🤖 Scoring: {provider}</span> <span class="badge">⚡ Powered by Kafka, hubris &amp; RSS</span></p>
+</header>
+{alert}
+<div class="stats">
+  <div class="stat"><b>{len(results)}</b><span>CEOs tracked</span></div>
+  <div class="stat"><b>{total_stories}</b><span>Headlines scanned</span></div>
+  <div class="stat"><b>{html.escape(top['name']) if top else '—'}</b><span>Reigning champion</span></div>
+  <div class="stat"><b>{avg}/100</b><span>Average horniness</span></div>
+</div>
 {''.join(rows)}
-<p class="fine"><strong>Methodology (such as it is):</strong> for each CEO we pull live headlines from
-Google News RSS matching relationship keywords, then score them — by AI (OpenAI, using this repo's
-existing <code>OPENAI_API_KEY</code> secret) when available, otherwise by a deterministic keyword
-heuristic. The score measures <em>headline risk to shareholder value</em>: affairs, workplace
-relationships, board investigations, resignations, viral incidents, and share-price moves.</p>
+<p class="fine"><strong>Methodology (such as it is):</strong> three producers stream live headlines
+(Google News, GDELT, and outlet RSS from the BBC &amp; CNBC) into Kafka topic <code>headlines.raw</code>;
+a dedupe consumer collapses syndicated copies into <code>headlines.clean</code> — one affair in
+30 outlets is one story with a reach of 30, not 30 affairs; a scorer writes <code>ceo.scores</code>,
+using OpenAI when an <code>OPENAI_API_KEY</code> secret is configured and a deterministic keyword
+heuristic otherwise. The score measures <em>headline risk to shareholder value</em>: affairs,
+workplace relationships, board investigations, resignations, viral incidents, and share-price moves.</p>
 <p class="fine"><strong>Satire &amp; sourcing:</strong> this is a meme, not investment advice and not a
 factual dossier. Every score is derived only from the linked headlines; allegations in those
 headlines are allegations — several are denied or unproven, and at least one board has said it has
 no reason to believe any secrets were compromised. Read the sources, not just the score.</p>
-<p class="fine">A loving tribute to the genre. Not affiliated with any company named. No CEOs were consulted.</p>
+<p class="fine">A loving tribute to the genre. Not affiliated with any company named.
+No CEOs were consulted. One was, however, trending.</p>
 </body></html>"""
 
 
