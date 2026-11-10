@@ -434,7 +434,7 @@ def compute_signals(headlines, now=None):
 
     LIVE       - fresh stories in the last 72h, more than one of them
     DEVELOPING - newest story within 14 days (possible escalation)
-    WATCH      - newest within 60 days (early smoke, possible)
+    WATCH      - newest within 45 days (early smoke, possible)
     COLD       - nothing recent: a historical case, kept for the record
     """
     now = now or datetime.now(timezone.utc)
@@ -454,7 +454,7 @@ def compute_signals(headlines, now=None):
         signal, label = "LIVE", "\U0001F534 LIVE \u2014 happening now"
     elif newest is not None and newest <= 14:
         signal, label = "DEVELOPING", "\U0001F7E0 DEVELOPING \u2014 unfolding, possible escalation"
-    elif newest is not None and newest <= 60:
+    elif newest is not None and newest <= 45:
         signal, label = "WATCH", "\U0001F7E1 WATCH \u2014 early smoke, possible"
     else:
         signal, label = "COLD", "\u26AA COLD CASE \u2014 historical, for the record"
@@ -724,14 +724,26 @@ function submitTip(e) {
 """
 
 def render(results, provider, generated, community=None):
-    results = sorted(results, key=lambda x: -x["score"])
-    now_list = [r for r in results if r.get("signal") != "COLD"]
-    hall_list = sorted((r for r in results if r.get("signal") == "COLD"),
+    def _fresh_key(r):
+        nd = r.get("newest_days")
+        return (-r["score"], nd if nd is not None else 1e9)
+    # The main board is for TODAY: real current heat and a story inside
+    # the signal window. A 0-heat CEO with old puff pieces is not news,
+    # no matter how many stories the producers hauled in.
+    now_list = sorted((r for r in results
+                       if r["score"] >= 1 and r.get("signal") != "COLD"),
+                      key=_fresh_key)
+    hall_list = sorted((r for r in results if r.get("signal") == "COLD"
+                        and r.get("legacy_score", 0) >= 40),
                        key=lambda x: -x.get("legacy_score", x["score"]))
-    top_live = now_list[0] if now_list else (results[0] if results else None)
+    _placed = {id(r) for r in now_list} | {id(r) for r in hall_list}
+    rest_list = sorted((r for r in results if id(r) not in _placed),
+                       key=lambda r: ("in post" not in (r.get("status") or "").lower(),
+                                      -r.get("legacy_score", 0), r["name"]))
+    top_live = now_list[0] if now_list else None
     total_stories = sum(len(r["headlines"]) for r in results)
     live_count = sum(1 for r in results if r.get("signal") == "LIVE")
-    avg = round(sum(r["score"] for r in results) / len(results)) if results else 0
+    avg = round(sum(r["score"] for r in now_list) / len(now_list)) if now_list else 0
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
 
     def card(r, i, hall=False):
@@ -740,10 +752,21 @@ def render(results, provider, generated, community=None):
                 return (f'<img class="thumb" src="{html.escape(h["image"])}" alt="" '
                         f'loading="lazy" onerror="this.remove()">')
             return ""
+        def _age(h):
+            a = age_days(h.get("date"))
+            return a if a is not None else 1e9
+        if hall:
+            shown_heads = list(r["headlines"])[:5]
+        else:
+            # Today-board receipts are today's receipts: <= 90 days old,
+            # newest first; if nothing is fresh, show the 2 newest.
+            fresh = sorted((h for h in r["headlines"] if _age(h) <= 90),
+                           key=_age)
+            shown_heads = (fresh or sorted(r["headlines"], key=_age)[:2])[:5]
         heads = "".join(
             f'<li>{_thumb(h)}<a href="{html.escape(h["link"])}" target="_blank" rel="noopener">'
-            f'{html.escape(h["title"])}</a></li>' for h in r["headlines"][:5])
-        feat_h = next((h for h in r["headlines"] if h.get("image")), None)
+            f'{html.escape(h["title"])}</a></li>' for h in shown_heads)
+        feat_h = next((h for h in shown_heads if h.get("image")), None)
         feat = (f'<img class="feat" src="{html.escape(feat_h["image"])}" alt="" '
                 f'loading="lazy" onerror="this.remove()">') if feat_h else ""
         factors = "".join(f"<li>{html.escape(f)}</li>" for f in r["factors"])
@@ -817,6 +840,24 @@ Two search queries and a dream is all it takes.</p>
         if _r["name"] == "Jensen Huang":
             now_list.insert(0, now_list.pop(_i))
             break
+    rest_rows = ""
+    for r in rest_list:
+        inpost = "in post" in (r.get("status") or "").lower()
+        badge = (' <span class="chip">current CEO</span>' if inpost
+                 else ' <span class="chip">former CEO</span>')
+        last = (f'last story {html.escape(str(r["last_seen"]))}'
+                if r.get("last_seen") else "no stories found")
+        rest_rows += (f'<div class="rest"><strong>{html.escape(r["name"])}</strong> '
+                      f'<span class="co">{html.escape(r["company"])}</span>{badge} '
+                      f'<span class="sub2">{last} · historical peak '
+                      f'{r.get("legacy_score", 0)}/100</span></div>')
+    rest_section = ""
+    if rest_list:
+        rest_section = f"""
+<h2 class="sect">🧊 No current smoke — the rest of the roster</h2>
+<p class="sub2">Tracked and watched, with no relationship-angle heat in the last
+45 days. Current CEOs first — the board above is only for what is happening now.</p>
+<div>{rest_rows}</div>"""
     now_cards = "".join(card(r, i + 1) for i, r in enumerate(now_list))
     hall_cards = "".join(card(r, i + 1, hall=True) for i, r in enumerate(hall_list))
     hall_section = ""
@@ -876,6 +917,7 @@ ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#8b8b96;font-size:.83rem;line
 .tip label{{font-size:.85rem;color:#ccc;font-weight:600}}
 .feat{{width:100%;height:150px;object-fit:cover;border-radius:10px;margin-bottom:10px;background:#222}}
 .thumb{{width:40px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px;background:#222}}
+.rest{{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;border-top:1px solid #2c2c38;padding:7px 0;font-size:.92rem}}
 </style></head><body>
 <header class="hero">
 <h1>📈🍆 The Horniness Index™</h1>
@@ -893,11 +935,14 @@ what is happening <em>now</em> — while the classics retire to the Hall of Fame
   <div class="stat"><b>{avg}/100</b><span>Average current heat</span></div>
 </div>
 <h2 class="sect">🔥 Happening now</h2>
-<p class="sub2">Ranked by current heat: story points decay with age, so a 2019 scandal
-cannot ride on vibes. Signals: 🔴 LIVE (fresh, multiple stories this week) ·
-🟠 DEVELOPING (unfolding, possible escalation) · 🟡 WATCH (early smoke, possible).</p>
+<p class="sub2">Ranked by current heat — and gated: only CEOs with real heat
+(score of 1+) and a story inside the last 45 days make this board. Signals:
+🔴 LIVE (fresh, multiple stories this week) · 🟠 DEVELOPING (unfolding,
+possible escalation) · 🟡 WATCH (early smoke, possible). Everyone else is in
+the Hall of Fame or the no-smoke roster below.</p>
 {now_cards}
 {hall_section}
+{rest_section}
 {community_html}
 <p class="fine"><strong>Methodology (such as it is):</strong> four producers stream live headlines
 (Google News, GDELT, outlet RSS from the BBC &amp; CNBC, and an OpenAI scout that searches the

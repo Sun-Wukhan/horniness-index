@@ -44,7 +44,10 @@ headline decide:
   names below, spelled exactly, or null if it is about none of them.
 - "rel": true only if the headline is about a romantic relationship angle
   (affair, dating, divorce, spouse, engagement, workplace romance, related
-  scandal/investigation). Business news that merely mentions a spouse is false.
+  scandal/investigation). Business news that merely mentions a spouse is
+  false — and so is a profile of the CEO's spouse, philanthropy, family or
+  lifestyle with no romantic-risk angle (a "meet the philanthropist wife"
+  puff piece is not a signal).
 
 Reply with ONLY a JSON array: [{{"i": <n>, "ceo": <name or null>, "rel": <bool>}}]
 
