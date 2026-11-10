@@ -671,6 +671,41 @@ def load_community(base_dir):
     return list(reversed(rows))  # newest nomination first
 
 
+TIP_FORM = """
+<form class="tip" onsubmit="return submitTip(event)">
+<label>CEO name *</label>
+<input id="f-name" required minlength="2" placeholder="e.g. Jane Q. Executive">
+<label>Company</label>
+<input id="f-company" placeholder="e.g. ExampleCorp (NYSE: EXMP)">
+<label>What's the update? *</label>
+<textarea id="f-reason" required minlength="10" rows="4" placeholder="A new nomination, a fresh headline about a listed CEO, a correction — the saga, in brief. What do the headlines say?"></textarea>
+<label>Receipts (links)</label>
+<textarea id="f-receipts" rows="2" placeholder="Headline links backing this up — one per line"></textarea>
+<button class="nombtn" type="submit">📨 Submit for review</button>
+<p class="sub2">Submitting opens a pre-filled GitHub issue in a new tab (a GitHub
+account is needed to post it — that is the spam gate). Nothing goes live
+automatically: the maintainer approves it, the bot files it into
+<code>community.csv</code>, and it appears here as a 🟡 WATCH community
+signal on the next build. Prefer the classic route?
+<a href="https://github.com/Sun-Wukhan/horniness-index/issues/new?template=nominate-ceo.yml" target="_blank" rel="noopener">Use the GitHub form instead</a>.</p>
+</form>
+<script>
+function submitTip(e) {
+  e.preventDefault();
+  var v = function(id) { return document.getElementById(id).value.trim(); };
+  var body = "### CEO name\n" + v('f-name') +
+    "\n\n### Company\n" + v('f-company') +
+    "\n\n### Why they belong on the Index\n" + v('f-reason') +
+    "\n\n### Receipts (links)\n" + v('f-receipts') + "\n";
+  var url = "https://github.com/Sun-Wukhan/horniness-index/issues/new?labels=nomination" +
+    "&title=" + encodeURIComponent("Nominate: " + v('f-name')) +
+    "&body=" + encodeURIComponent(body);
+  window.open(url, '_blank');
+  return false;
+}
+</script>
+"""
+
 def render(results, provider, generated, community=None):
     results = sorted(results, key=lambda x: -x["score"])
     now_list = [r for r in results if r.get("signal") != "COLD"]
@@ -750,7 +785,9 @@ def render(results, provider, generated, community=None):
 <code>community.csv</code> in this repo (the database is a CSV and it is beautiful).
 Nominations arrive as GitHub issues and join the CSV when approved. Allegations
 are allegations — bring receipts (links) in your reason.</p>
-<p><a class="nombtn" href="https://github.com/Sun-Wukhan/horniness-index/issues/new?template=nominate-ceo.yml" target="_blank" rel="noopener">➕ Nominate a CEO</a></p>
+<p class="sub2"><strong style="color:#f2f2f5">Add or update information right here:</strong>
+a new CEO, a fresh headline about a listed one, or a correction.</p>
+{TIP_FORM}
 <p class="sub2">Developers: to get a CEO fully tracked — Kafka producers, dedupe, scoring —
 open a pull request adding them to <code>CEOS</code> in <code>horniness-index.py</code>.
 Two search queries and a dream is all it takes.</p>
@@ -818,6 +855,8 @@ ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#8b8b96;font-size:.83rem;line
 .comm{{background:#12121a;border:1px solid #2c2c38;border-radius:16px;padding:20px;margin:30px 0}}
 .nombtn{{display:inline-block;background:#c9184a;color:#fff;border-radius:8px;padding:10px 18px;font-weight:700;text-decoration:none}}
 .nom{{border-top:1px solid #2c2c38;padding:10px 0}}
+.tip input,.tip textarea{{width:100%;background:#17171f;border:1px solid #3a3a48;border-radius:8px;color:#f2f2f5;padding:9px;margin:4px 0 10px;font:inherit}}
+.tip label{{font-size:.85rem;color:#ccc;font-weight:600}}
 .feat{{width:100%;height:150px;object-fit:cover;border-radius:10px;margin-bottom:10px;background:#222}}
 .thumb{{width:40px;height:40px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:8px;background:#222}}
 </style></head><body>
