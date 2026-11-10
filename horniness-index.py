@@ -727,13 +727,18 @@ def render(results, provider, generated, community=None):
     def _fresh_key(r):
         nd = r.get("newest_days")
         return (-r["score"], nd if nd is not None else 1e9)
-    # The main board is for TODAY: real current heat and a story inside
-    # the signal window. A 0-heat CEO with old puff pieces is not news,
-    # no matter how many stories the producers hauled in.
+    # The main board is for TODAY: a CURRENT CEO (in post) with real
+    # current heat (15+) and a story inside the signal window. A 0-heat
+    # CEO with old puff pieces is not news, no matter how many stories
+    # the producers hauled in; former CEOs retire to the Hall of Fame.
+    def _current(r):
+        return "in post" in (r.get("status") or "").lower()
     now_list = sorted((r for r in results
-                       if r["score"] >= 1 and r.get("signal") != "COLD"),
+                       if r["score"] >= 15 and r.get("signal") != "COLD"
+                       and _current(r)),
                       key=_fresh_key)
-    hall_list = sorted((r for r in results if r.get("signal") == "COLD"
+    hall_list = sorted((r for r in results
+                        if (r.get("signal") == "COLD" or not _current(r))
                         and r.get("legacy_score", 0) >= 40),
                        key=lambda x: -x.get("legacy_score", x["score"]))
     _placed = {id(r) for r in now_list} | {id(r) for r in hall_list}
@@ -935,8 +940,9 @@ what is happening <em>now</em> — while the classics retire to the Hall of Fame
   <div class="stat"><b>{avg}/100</b><span>Average current heat</span></div>
 </div>
 <h2 class="sect">🔥 Happening now</h2>
-<p class="sub2">Ranked by current heat — and gated: only CEOs with real heat
-(score of 1+) and a story inside the last 45 days make this board. Signals:
+<p class="sub2">Ranked by current heat — and gated: only CEOs currently in
+post, with real heat (score of 15+) and a story inside the last 45 days,
+make this board. Signals:
 🔴 LIVE (fresh, multiple stories this week) · 🟠 DEVELOPING (unfolding,
 possible escalation) · 🟡 WATCH (early smoke, possible). Everyone else is in
 the Hall of Fame or the no-smoke roster below.</p>
