@@ -16,7 +16,10 @@ import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from pipeline.common import TOPIC_CLEAN, TOPIC_RAW, stage_banner, transport_from_args
+from pipeline.common import (TOPIC_CLEAN, TOPIC_RAW, load_core,
+                                 stage_banner, transport_from_args)
+
+CORE = load_core()
 
 STOP = set("the a an of to in on for and or as at by with s".split())
 
@@ -56,6 +59,12 @@ def dedupe(records):
             bucket.append(hit)
             order.append((ceo, hit))
         hit["placements"] += 1
+        # The story's date is its NEWEST placement's date: a 2019 scandal
+        # syndicated again today is news today.
+        cur = CORE.parse_date(hit.get("newest_date"))
+        newd = CORE.parse_date(rec.get("date"))
+        if newd is not None and (cur is None or newd > cur):
+            hit["newest_date"] = rec.get("date")
         if rec.get("source"):
             hit["outlets"].add(rec["source"])
         if rec.get("via"):
@@ -68,7 +77,8 @@ def dedupe(records):
         rep = cl["rep"]
         out.append({
             "ceo": ceo, "company": rep["company"], "status": rep["status"],
-            "title": rep["title"], "link": rep["link"], "date": rep["date"],
+            "title": rep["title"], "link": rep["link"],
+            "date": cl.get("newest_date") or rep["date"],
             "source": rep["source"],
             "reach": max(cl["placements"], len(cl["outlets"])),
             "placements": cl["placements"],

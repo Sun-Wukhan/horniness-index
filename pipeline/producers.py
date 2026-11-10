@@ -119,8 +119,66 @@ def produce_outlet_rss(transport):
     return total
 
 
+SCOUT_PROMPT = """Search the web for RECENT news headlines (prefer the last 90 days) about
+{name}, CEO of {company}, concerning romantic relationships, affairs, dating,
+divorce, workplace relationships, or related scandals and investigations.
+
+Return ONLY a JSON array of up to 5 items, no markdown, each:
+{{"title": "<headline as published>", "url": "<article URL>",
+  "source": "<outlet name>", "date": "<YYYY-MM-DD or best estimate>"}}
+Use only real headlines you actually found in search results. If you find
+nothing relevant, return []."""
+
+
+def produce_ai_scout(transport):
+    """AI scout producer: an OpenAI model WITH web search goes and finds
+    headlines itself, complementing the dumb RSS/API producers. Its finds
+    flow through the same dedupe (where overlap with RSS counts as reach)
+    and the same scoring rubric — the scout proposes, the pipeline disposes.
+    No API key -> quietly emits nothing; any failure is non-fatal."""
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        print("[ai-scout] no OPENAI_API_KEY — skipping")
+        return 0
+    total = 0
+    for ceo in CORE.CEOS:
+        try:
+            body = json.dumps({
+                "model": os.environ.get("HORNINESS_SCOUT_MODEL") or "gpt-4o-mini",
+                "tools": [{"type": "web_search"}],
+                "input": SCOUT_PROMPT.format(name=ceo["name"], company=ceo["company"]),
+            }).encode()
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/responses", data=body,
+                headers={"content-type": "application/json",
+                         "authorization": "Bearer " + key})
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                payload = json.load(resp)
+            text = payload.get("output_text") or ""
+            if not text:
+                for item in payload.get("output", []):
+                    for c in item.get("content", []):
+                        if c.get("type") == "output_text":
+                            text += c.get("text", "")
+            text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.M).strip()
+            found = json.loads(text)
+            kept = 0
+            for h in found[:5]:
+                title = str(h.get("title", "")).strip()
+                if not title:
+                    continue
+                kept += emit(transport, ceo, title, str(h.get("url", "")),
+                             str(h.get("date", "")), str(h.get("source", "web")),
+                             "ai-scout")
+            total += kept
+            print(f"[ai-scout] {ceo['name']}: {kept}")
+        except Exception as exc:
+            print(f"[ai-scout] {ceo['name']}: failed ({type(exc).__name__}) — non-fatal")
+    return total
+
+
 PRODUCERS = {"google-news": produce_google_news, "gdelt": produce_gdelt,
-             "outlet-rss": produce_outlet_rss}
+             "outlet-rss": produce_outlet_rss, "ai-scout": produce_ai_scout}
 
 
 def run(transport, which=("all",)):

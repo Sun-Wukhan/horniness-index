@@ -1,0 +1,39 @@
+name: 🗳️ Nominate a CEO
+description: Add a chief executive to the Horniness Index community watchlist (community.csv). A maintainer reviews every nomination — add the "approved" label and the bot files it into the CSV.
+title: "Nominate: "
+labels: ["nomination"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Nominate a CEO for the Index
+        Allegations are allegations — bring receipts. Approved nominations land in
+        `community.csv` and appear on the site as 🟡 WATCH (community signal).
+  - type: input
+    id: ceo_name
+    attributes:
+      label: CEO name
+      placeholder: "e.g. Jane Q. Executive"
+    validations:
+      required: true
+  - type: input
+    id: company
+    attributes:
+      label: Company
+      placeholder: "e.g. ExampleCorp (NYSE: EXMP)"
+    validations:
+      required: false
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why they belong on the Index
+      description: The saga, in brief. What do the headlines say?
+    validations:
+      required: true
+  - type: textarea
+    id: receipts
+    attributes:
+      label: Receipts (links)
+      description: Headline links backing the nomination.
+    validations:
+      required: false

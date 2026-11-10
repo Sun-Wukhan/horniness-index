@@ -35,19 +35,22 @@ def run(transport):
             scored = CORE.ai_score(ceo, stories)
         except Exception:
             scored = None
+        legacy, _lf = CORE.legacy_heuristic_score(stories)
         if scored:
             provider = "Kafka pipeline · AI-scored (OpenAI) from live headlines"
             score, factors = scored["score"], list(scored["factors"])
             verdict = scored["verdict"]
         else:
-            score, factors = CORE.heuristic_score(stories)
+            score, factors = CORE.heat_score(stories)
         boost = min(6, max(0, placements - len(stories)) // 8)
         if boost:
             score = min(99, score + boost)
             factors.append(f"syndication reach: {placements} placements across {len(stories)} stories (+{boost})")
         rec = {"ceo": ceo["name"], "company": ceo["company"], "status": ceo["status"],
-               "score": score, "verdict": verdict, "factors": factors,
-               "provider": provider, "stories": len(stories), "placements": placements}
+               "score": score, "legacy_score": legacy, "verdict": verdict,
+               "factors": factors, "provider": provider,
+               "stories": len(stories), "placements": placements,
+               **CORE.compute_signals(stories)}
         transport.produce(TOPIC_SCORES, ceo["name"], rec)
         scores.append(rec)
         print(f"scorer: {ceo['name']}: {score} ({len(stories)} stories, {placements} placements)")

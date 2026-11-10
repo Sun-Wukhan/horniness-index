@@ -14,7 +14,9 @@ mechanism.
  ├────────────────────┤  │   ┌──────────────┐   ┌──────────────┐   ┌──────────────┐
  │ gdelt (global API) │──┼──▶│ headlines.raw│──▶│headlines.clean│──▶│  ceo.scores  │──▶ index.html
  ├────────────────────┤  │   └──────────────┘   └──────────────┘   └──────────────┘    data.json
- │ outlet-rss (BBC…)  │──┘    keyed by CEO       syndicated copies   OpenAI scoring,        │
+ │ outlet-rss (BBC…)  │──┤    keyed by CEO       syndicated copies   OpenAI scoring,        │
+ │ ai-scout (OpenAI   │──┘                        collapsed to reach  heuristic fallback     │
+ │  web search)       │
  └────────────────────┘                         collapsed to reach  heuristic fallback     └─▶ GitHub Pages
 ```
 
@@ -37,6 +39,24 @@ allegations. Signals: affairs, workplace relationships, board
 investigations, resignations, viral incidents, intelligence angles,
 share-price moves, headline volume. Without an API key, a deterministic
 keyword heuristic scores instead — the page always builds.
+
+
+**Signals & current heat.** Every CEO carries two numbers. *Current heat*
+is the headline score with story points decayed by age (a story today
+counts ~12x a year-old one), so the main board answers "what is happening
+now": 🔴 **LIVE** (multiple fresh stories this week) · 🟠 **DEVELOPING**
+(newest story within a fortnight — possible escalation) · 🟡 **WATCH**
+(smoke within 60 days — possible) · ⚪ **COLD CASE**. Cold cases retire to
+the Hall of Fame with their *historical peak* (the undecayed score)
+preserved. Signals are computed from story dates, not vibes.
+
+**Community nominations (the database is a CSV).** `community.csv` in
+this repo is the community database. Anyone can nominate a CEO via the
+GitHub Issue Form; when a maintainer adds the `approved` label, the
+nomination bot (`.github/workflows/nominations.yml` +
+`scripts/append_nomination.py`) appends the row, and the next build shows
+it on the site as a 🟡 WATCH community signal. Every entry is a git
+commit: auditable, revertable, gloriously low-tech.
 
 **Running it**
 

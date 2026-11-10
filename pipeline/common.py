@@ -116,15 +116,29 @@ class KafkaTransport:
         return self._producer
 
     def ensure_topics(self, partitions=8):
-        from kafka.admin import KafkaAdminClient, NewTopic
-        from kafka.errors import TopicAlreadyExistsError
-        admin = KafkaAdminClient(bootstrap_servers=self.bootstrap)
+        """Best-effort topic creation — NEVER fatal.
+
+        Run 42834099109 died here: KafkaAdminClient ran kafka-python's
+        version probe (its constructor connects eagerly, like the producer
+        did in run #1) and hit the same `Invalid file object: None`. The
+        broker auto-creates topics on first produce/consume anyway
+        (Redpanda and Kafka both default to it), so a failed admin call
+        must only ever be a warning.
+        """
         try:
-            admin.create_topics([NewTopic(t, partitions, 1) for t in TOPICS])
-        except TopicAlreadyExistsError:
-            pass
-        finally:
-            admin.close()
+            from kafka.admin import KafkaAdminClient, NewTopic
+            from kafka.errors import TopicAlreadyExistsError
+            admin = KafkaAdminClient(bootstrap_servers=self.bootstrap,
+                                     api_version=self.API_VERSION)
+            try:
+                admin.create_topics([NewTopic(t, partitions, 1) for t in TOPICS])
+            except TopicAlreadyExistsError:
+                pass
+            finally:
+                admin.close()
+        except Exception as exc:
+            print(f"ensure_topics: skipped ({type(exc).__name__}: {exc}); "
+                  "broker auto-create will handle topics")
 
     def wait_ready(self, timeout=120):
         """Block until the broker answers metadata requests."""

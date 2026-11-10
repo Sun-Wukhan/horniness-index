@@ -31,6 +31,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 CEOS = [
     {
@@ -151,7 +152,112 @@ STRONG = re.compile(r"affair|extramarital|unfaithful|resign|fired|ousted|kiss ca
                     r"ex-boyfriend|lover|mistress|mother of .* children", re.I)
 
 
-def heuristic_score(headlines):
+def parse_date(s):
+    """Best-effort parse of RSS pubDate, GDELT seendate, or ISO strings."""
+    if not s:
+        return None
+    s = str(s).strip()
+    m = re.match(r"^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$", s)
+    if m:
+        try:
+            return datetime(*[int(x) for x in m.groups()], tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    try:
+        dt = parsedate_to_datetime(s)
+        if dt is not None:
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        pass
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def age_days(date_str, now=None):
+    dt = parse_date(date_str)
+    if dt is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    return max(0.0, (now - dt).total_seconds() / 86400.0)
+
+
+def recency_weight(age):
+    """How much a story of this age counts toward CURRENT heat."""
+    if age is None:
+        return 0.3
+    if age <= 3: return 1.0
+    if age <= 14: return 0.85
+    if age <= 45: return 0.6
+    if age <= 120: return 0.35
+    if age <= 365: return 0.18
+    return 0.08
+
+
+def compute_signals(headlines, now=None):
+    """Signal state from story dates: what is happening NOW vs history.
+
+    LIVE       - fresh stories in the last 72h, more than one of them
+    DEVELOPING - newest story within 14 days (possible escalation)
+    WATCH      - newest within 60 days (early smoke, possible)
+    COLD       - nothing recent: a historical case, kept for the record
+    """
+    now = now or datetime.now(timezone.utc)
+    ages = [a for a in (age_days(h.get("date"), now) for h in headlines)
+            if a is not None]
+    newest = min(ages) if ages else None
+    last_seen = None
+    if headlines and newest is not None:
+        freshest = min(headlines,
+                       key=lambda h: age_days(h.get("date"), now)
+                       if age_days(h.get("date"), now) is not None else 1e9)
+        dt = parse_date(freshest.get("date"))
+        last_seen = dt.strftime("%Y-%m-%d") if dt else None
+    s7 = sum(1 for a in ages if a <= 7)
+    s30 = sum(1 for a in ages if a <= 30)
+    if newest is not None and newest <= 3 and s7 >= 2:
+        signal, label = "LIVE", "\U0001F534 LIVE \u2014 happening now"
+    elif newest is not None and newest <= 14:
+        signal, label = "DEVELOPING", "\U0001F7E0 DEVELOPING \u2014 unfolding, possible escalation"
+    elif newest is not None and newest <= 60:
+        signal, label = "WATCH", "\U0001F7E1 WATCH \u2014 early smoke, possible"
+    else:
+        signal, label = "COLD", "\u26AA COLD CASE \u2014 historical, for the record"
+    return {"signal": signal, "signal_label": label,
+            "newest_days": (round(newest, 1) if newest is not None else None),
+            "last_seen": last_seen, "stories_7d": s7, "stories_30d": s30}
+
+
+def heat_score(headlines, now=None):
+    """Recency-weighted score: the same rubric as the legacy score, but a
+    story's points decay with its age, so the number measures what is
+    happening NOW rather than the worst week of someone's life in 2019."""
+    if not headlines:
+        return 3, ["no relationship headlines found \u2014 deeply boring, shareholder-safe"]
+    now = now or datetime.now(timezone.utc)
+    total, wsum, strong_w, gains = 0.0, 0.0, 0.0, {}
+    for h in headlines:
+        w = recency_weight(age_days(h.get("date"), now))
+        wsum += w
+        if STRONG.search(h["title"]):
+            strong_w += w
+        t = h["title"].lower()
+        for pattern, points, label in SIGNALS:
+            if re.search(pattern, t):
+                total += points * w
+                gains[label] = gains.get(label, 0.0) + points * w
+    total += min(wsum, 10)
+    total *= (0.35 + 0.65 * min(strong_w / 4.0, 1))
+    factors = [f"{k} (current-weighted)" for k, _ in
+               sorted(gains.items(), key=lambda kv: -kv[1])[:4]]
+    sig = compute_signals(headlines, now)
+    factors.append(f"freshness: newest story {sig['newest_days']}d ago, "
+                   f"{sig['stories_7d']} in the last week")
+    return max(2, min(int(round(total)), 99)), factors[:5]
+
+
+def legacy_heuristic_score(headlines):
     if not headlines:
         return 3, ["no relationship headlines found — deeply boring, shareholder-safe"]
     text = " \n".join(h["title"].lower() for h in headlines)
@@ -182,6 +288,11 @@ a board investigation, a resignation/firing, a viral public incident, a foreign
 intelligence angle, a costly divorce, and sheer headline volume. A CEO with
 almost no relationship headlines scores near 0.
 
+Score the CURRENT risk, not the historical worst case: headlines carry
+dates \u2014 weight the last 30 days heavily. An old, resolved story that is
+not back in the news counts for little; a story moving right now counts
+double. If everything supplied is old, say so in the verdict.
+
 Reply with ONLY a JSON object, no markdown:
 {{"score": <int 0-100>, "verdict": "<one funny, one-sentence summary of what the HEADLINES say, max 25 words>", "factors": ["<short factor>", "... up to 4"]}}
 
@@ -194,7 +305,7 @@ Headlines:
 def ai_score(ceo, headlines):
     if not headlines or not os.environ.get("OPENAI_API_KEY"):
         return None
-    joined = "\n".join(f"- {h['title']}" for h in headlines)
+    joined = "\n".join(f"- [{(h.get('date') or 'undated')}] {h['title']}" for h in headlines)
     prompt = AI_PROMPT.format(name=ceo["name"], company=ceo["company"],
                               status=ceo["status"], headlines=joined)
     body = json.dumps({
@@ -235,49 +346,114 @@ def band_verdict(score):
     return "Cleaner than the company's own code of conduct."
 
 
-def render(results, provider, generated):
+def load_community(base_dir):
+    """The community database: community.csv in the repo root."""
+    import csv
+    path = os.path.join(base_dir, "community.csv")
+    rows = []
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if (row.get("ceo_name") or "").strip():
+                    rows.append({k: (v or "").strip() for k, v in row.items()})
+    except FileNotFoundError:
+        pass
+    return list(reversed(rows))  # newest nomination first
+
+
+def render(results, provider, generated, community=None):
     results = sorted(results, key=lambda x: -x["score"])
-    top = results[0] if results else None
+    now_list = [r for r in results if r.get("signal") != "COLD"]
+    hall_list = sorted((r for r in results if r.get("signal") == "COLD"),
+                       key=lambda x: -x.get("legacy_score", x["score"]))
+    top_live = now_list[0] if now_list else (results[0] if results else None)
     total_stories = sum(len(r["headlines"]) for r in results)
+    live_count = sum(1 for r in results if r.get("signal") == "LIVE")
     avg = round(sum(r["score"] for r in results) / len(results)) if results else 0
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    rows = []
-    for i, r in enumerate(results, 1):
+
+    def card(r, i, hall=False):
         heads = "".join(
             f'<li><a href="{html.escape(h["link"])}" target="_blank" rel="noopener">'
-            f'{html.escape(h["title"])}</a></li>' for r_h in [r] for h in r_h["headlines"][:5])
+            f'{html.escape(h["title"])}</a></li>' for h in r["headlines"][:5])
         factors = "".join(f"<li>{html.escape(f)}</li>" for f in r["factors"])
         verdict = html.escape(r["verdict"]) if r["verdict"] else band_verdict(r["score"])
-        medal = medals.get(i, "")
-        crown = ' <span class="crown">👑 CHIEF HORNY OFFICER</span>' if i == 1 else ""
+        shown = r.get("legacy_score", r["score"]) if hall else r["score"]
+        label = "all-time peak" if hall else "current heat"
+        medal = medals.get(i, "") if not hall else ""
+        crown = (' <span class="crown">👑 CHIEF HORNY OFFICER</span>'
+                 if not hall and i == 1 else "")
+        pulse = ' <span class="pulse"></span>' if r.get("signal") == "LIVE" else ""
+        last = ""
+        if r.get("last_seen"):
+            nd = r.get("newest_days")
+            ago = f" ({nd}d ago)" if nd is not None else ""
+            last = f'<span class="chip">🗞️ last story {html.escape(str(r["last_seen"]))}{ago}</span> '
         reach = ""
         if r.get("stories") is not None:
             reach = (f'<p class="reach">🗞️ {r["stories"]} distinct stories · '
                      f'{r.get("placements", r["stories"])} total placements '
                      f'(syndication counts — one scandal, everywhere)</p>')
-        rows.append(f"""
-<article class="card{' top' if i == 1 else ''}">
+        return f"""
+<article class="card{' top' if not hall and i == 1 else ''}">
   <div class="rank">{medal or '#' + str(i)}</div>
   <div class="main">
     <h2>{html.escape(r['name'])}{crown} <span class="co">{html.escape(r['company'])} · {html.escape(r['status'])}</span></h2>
-    <div class="meter"><div class="bar" style="width:{r['score']}%"></div><span class="score">{r['score']}/100</span></div>
-    <p class="risk">{risk_label(r['score'])}</p>
+    <p class="sig">{pulse}{html.escape(r.get('signal_label', ''))}</p>
+    <div class="meter"><div class="bar" style="width:{shown}%"></div><span class="score">{shown}/100 · {label}</span></div>
+    <p class="risk">{risk_label(shown)}</p>
     <p class="verdict">“{verdict}”</p>
+    <p>{last}{'<span class="chip">📚 historical peak ' + str(r.get('legacy_score', r['score'])) + '/100</span>' if not hall and r.get('legacy_score') is not None and r.get('legacy_score', 0) > r['score'] else ''}</p>
     {reach}
     <details><summary>Receipts — signals &amp; top headlines</summary>
       <ul class="factors">{factors}</ul><ul class="heads">{heads}</ul></details>
   </div>
-</article>""")
+</article>"""
+
+    comm_rows = ""
+    for n in (community or []):
+        comm_rows += (
+            f'<div class="nom"><strong>{html.escape(n.get("ceo_name", ""))}</strong> '
+            f'<span class="co">{html.escape(n.get("company", ""))}</span> '
+            f'<span class="chip">🟡 WATCH — community signal</span><br>'
+            f'<span class="sub2">{html.escape(n.get("reason", ""))}</span> '
+            f'<span class="sub2">(nominated by {html.escape(n.get("submitter") or "anonymous")}, '
+            f'{html.escape(n.get("added", ""))})</span></div>')
+    if not comm_rows:
+        comm_rows = ('<p class="sub2">No community nominations yet — the watchlist is '
+                     'empty and the CEOs are getting comfortable. Fix that.</p>')
+    community_html = f"""
+<section class="comm" id="community">
+<h2 style="margin-top:0">🗳️ Community watchlist — possible signals</h2>
+<p class="sub2">Nominated by readers, stored in plain sight: every entry is a row in
+<code>community.csv</code> in this repo (the database is a CSV and it is beautiful).
+Nominations arrive as GitHub issues and join the CSV when approved. Allegations
+are allegations — bring receipts (links) in your reason.</p>
+<p><a class="nombtn" href="https://github.com/Sun-Wukhan/horniness-index/issues/new?template=nominate-ceo.yml" target="_blank" rel="noopener">➕ Nominate a CEO</a></p>
+{comm_rows}
+</section>"""
+
+    now_cards = "".join(card(r, i + 1) for i, r in enumerate(now_list))
+    hall_cards = "".join(card(r, i + 1, hall=True) for i, r in enumerate(hall_list))
+    hall_section = ""
+    if hall_list:
+        hall_section = f"""
+<h2 class="sect">📚 The Hall of Fame — cold cases</h2>
+<p class="sub2">Historical blow-ups, scored at their peak. Nothing current — the
+news cycle has moved on, the settlements have settled, the NDAs are ironclad.
+Kept here so the current generation knows the bar.</p>
+{hall_cards}"""
     alert = ""
-    if top:
-        alert = (f'<div class="alert">🚨 <strong>MARKET ALERT:</strong> {html.escape(top["name"])} '
-                 f'tops the Index at {top["score"]}/100. Shareholders are advised to hold — '
+    if top_live:
+        verb = "is LIVE at" if top_live.get("signal") == "LIVE" else "leads the current board at"
+        alert = (f'<div class="alert">🚨 <strong>MARKET ALERT:</strong> {html.escape(top_live["name"])} '
+                 f'{verb} {top_live["score"]}/100 current heat. Shareholders are advised to hold — '
                  f'preferably onto something sturdy.</div>')
     return f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Horniness Index™ — CEO Shareholder-Risk Leaderboard</title>
-<meta name="description" content="A satirical, Kafka-powered leaderboard scoring CEOs on the shareholder-value risk of their relationship headlines.">
+<meta name="description" content="A satirical, Kafka-powered leaderboard scoring CEOs on the shareholder-value risk of their relationship headlines — focused on what is happening now.">
 <style>
 *{{box-sizing:border-box}}
 body{{background:#0d0d12;color:#f2f2f5;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:880px;margin:0 auto;padding:0 16px 64px}}
@@ -289,43 +465,60 @@ h1{{font-size:2.6rem;margin:0 0 6px;letter-spacing:-.5px}}
 .stat{{flex:1 1 140px;background:#17171f;border:1px solid #2c2c38;border-radius:12px;padding:12px;text-align:center}}
 .stat b{{display:block;font-size:1.35rem;color:#ff8fab}}
 .stat span{{color:#aaa;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}}
+.sect{{margin:34px 0 4px;font-size:1.5rem}} .sub2{{color:#aaa;margin:0 0 8px}}
 .card{{display:flex;gap:16px;background:#17171f;border:1px solid #2c2c38;border-radius:16px;padding:18px;margin:14px 0;transition:transform .15s ease,border-color .15s ease}}
 .card:hover{{transform:translateY(-2px);border-color:#ff5c8a}}
 .card.top{{border:2px solid #ffb703;background:linear-gradient(180deg,#241a08,#17171f)}}
 .rank{{font-size:1.9rem;font-weight:800;min-width:52px;text-align:center}}
 .co{{color:#999;font-size:.85rem;font-weight:400}} .crown{{color:#ffb703;font-size:.8rem;font-weight:800;letter-spacing:.05em}}
-h2{{margin:0 0 10px;font-size:1.3rem}}
+h2{{margin:0 0 6px;font-size:1.3rem}}
+.sig{{font-weight:800;margin:2px 0 8px;letter-spacing:.02em}}
+.pulse{{display:inline-block;width:10px;height:10px;border-radius:50%;background:#ff2e4d;margin-right:6px;animation:pulse 1.2s ease-in-out infinite}}
+@keyframes pulse{{0%,100%{{opacity:1;transform:scale(1)}}50%{{opacity:.35;transform:scale(.8)}}}}
 .meter{{position:relative;background:#2a2a35;border-radius:8px;height:24px;overflow:hidden}}
 .bar{{height:100%;background:linear-gradient(90deg,#ffb347,#ff5c8a,#c9184a);animation:shimmer 2.4s linear infinite;background-size:200% 100%}}
 @keyframes shimmer{{0%{{background-position:0% 0}}100%{{background-position:200% 0}}}}
 .score{{position:absolute;right:8px;top:3px;font-weight:800;font-size:.92rem;text-shadow:0 1px 3px #000}}
 .risk{{font-weight:700;margin:10px 0 4px}} .verdict{{color:#ffd6e0;font-style:italic;margin:4px 0}}
 .reach{{color:#9fd8ff;font-size:.86rem;margin:4px 0}}
+.chip{{display:inline-block;background:#26262f;border:1px solid #3a3a48;border-radius:999px;padding:2px 9px;font-size:.76rem;color:#ccc;margin:2px 2px 2px 0}}
 details{{margin-top:8px}} summary{{cursor:pointer;color:#8ecae6}}
 ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#8b8b96;font-size:.83rem;line-height:1.55;margin-top:26px}}
 .badge{{display:inline-block;background:#26262f;border:1px solid #3a3a48;border-radius:999px;padding:3px 10px;font-size:.78rem;color:#ccc}}
+.comm{{background:#12121a;border:1px solid #2c2c38;border-radius:16px;padding:20px;margin:30px 0}}
+.nombtn{{display:inline-block;background:#c9184a;color:#fff;border-radius:8px;padding:10px 18px;font-weight:700;text-decoration:none}}
+.nom{{border-top:1px solid #2c2c38;padding:10px 0}}
 </style></head><body>
 <header class="hero">
 <h1>📈🍆 The Horniness Index™</h1>
 <p class="tag">Quantifying CEO downside risk, one headline at a time.<br>
-Tracking public-company CEOs, their dating lives, travel plans, and the probability of blowing up shareholder value.</p>
+Now with a memory of about five minutes: the board scores <strong>current heat</strong> —
+what is happening <em>now</em> — while the classics retire to the Hall of Fame.</p>
 <p><span class="badge">🕒 Updated {generated} UTC</span> <span class="badge">🤖 Scoring: {provider}</span> <span class="badge">⚡ Powered by Kafka, hubris &amp; RSS</span></p>
 </header>
 {alert}
 <div class="stats">
   <div class="stat"><b>{len(results)}</b><span>CEOs tracked</span></div>
   <div class="stat"><b>{total_stories}</b><span>Headlines scanned</span></div>
-  <div class="stat"><b>{html.escape(top['name']) if top else '—'}</b><span>Reigning champion</span></div>
-  <div class="stat"><b>{avg}/100</b><span>Average horniness</span></div>
+  <div class="stat"><b>{live_count}</b><span>Live right now</span></div>
+  <div class="stat"><b>{avg}/100</b><span>Average current heat</span></div>
 </div>
-{''.join(rows)}
-<p class="fine"><strong>Methodology (such as it is):</strong> three producers stream live headlines
-(Google News, GDELT, and outlet RSS from the BBC &amp; CNBC) into Kafka topic <code>headlines.raw</code>;
+<h2 class="sect">🔥 Happening now</h2>
+<p class="sub2">Ranked by current heat: story points decay with age, so a 2019 scandal
+cannot ride on vibes. Signals: 🔴 LIVE (fresh, multiple stories this week) ·
+🟠 DEVELOPING (unfolding, possible escalation) · 🟡 WATCH (early smoke, possible).</p>
+{now_cards}
+{hall_section}
+{community_html}
+<p class="fine"><strong>Methodology (such as it is):</strong> four producers stream live headlines
+(Google News, GDELT, outlet RSS from the BBC &amp; CNBC, and an OpenAI scout that searches the
+web itself) into Kafka topic <code>headlines.raw</code>;
 a dedupe consumer collapses syndicated copies into <code>headlines.clean</code> — one affair in
 30 outlets is one story with a reach of 30, not 30 affairs; a scorer writes <code>ceo.scores</code>,
 using OpenAI when an <code>OPENAI_API_KEY</code> secret is configured and a deterministic keyword
-heuristic otherwise. The score measures <em>headline risk to shareholder value</em>: affairs,
-workplace relationships, board investigations, resignations, viral incidents, and share-price moves.</p>
+heuristic otherwise. Two numbers per CEO: <em>current heat</em> (recency-decayed — the main board)
+and the <em>historical peak</em> (the Hall of Fame). Signals come from story dates, not vibes.
+Community nominations live in <code>community.csv</code> — yes, the database is a CSV.</p>
 <p class="fine"><strong>Satire &amp; sourcing:</strong> this is a meme, not investment advice and not a
 factual dossier. Every score is derived only from the linked headlines; allegations in those
 headlines are allegations — several are denied or unproven, and at least one board has said it has
@@ -333,7 +526,6 @@ no reason to believe any secrets were compromised. Read the sources, not just th
 <p class="fine">A loving tribute to the genre. Not affiliated with any company named.
 No CEOs were consulted. One was, however, trending.</p>
 </body></html>"""
-
 
 def main():
     out_dir = sys.argv[1] if len(sys.argv) > 1 else "horniness-index"
@@ -346,19 +538,22 @@ def main():
             scored = ai_score(ceo, headlines)
         except Exception:
             scored = None
+        legacy, _lf = legacy_heuristic_score(headlines)
         if scored:
             provider = "AI-scored (OpenAI) from live headlines"
             score, factors, verdict = scored["score"], scored["factors"], scored["verdict"]
         else:
-            score, factors = heuristic_score(headlines)
+            score, factors = heat_score(headlines)
         results.append({**ceo, "headlines": headlines, "score": score,
-                        "factors": factors, "verdict": verdict})
+                        "legacy_score": legacy,
+                        "factors": factors, "verdict": verdict,
+                        **compute_signals(headlines)})
         print(f"{ceo['name']}: {score} from {len(headlines)} headlines")
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     with open(os.path.join(out_dir, "index.html"), "w", encoding="utf-8") as f:
-        f.write(render(results, provider, generated))
+        f.write(render(results, provider, generated, load_community(os.path.dirname(os.path.abspath(__file__)))))
     with open(os.path.join(out_dir, "data.json"), "w", encoding="utf-8") as f:
-        json.dump({"generated": generated, "provider": provider, "results": results}, f, indent=2)
+        json.dump({"generated": generated, "provider": provider, "results": results, "community": load_community(os.path.dirname(os.path.abspath(__file__)))}, f, indent=2)
     print(f"Wrote {out_dir}/index.html and data.json ({provider})")
     return 0
 
