@@ -101,6 +101,101 @@ CEOS = [
             '"Satya Nadella" wife OR relationship OR affair',
         ],
     },
+    {
+        "name": "Bill Gates",
+        "company": "Microsoft",
+        "status": "Co-founder, former CEO",
+        "queries": [
+            '"Bill Gates" affair employee board inquiry',
+            '"Bill Gates" divorce Melinda relationship Epstein questions',
+        ],
+    },
+    {
+        "name": "Eric Schmidt",
+        "company": "Google",
+        "status": "Former CEO",
+        "queries": [
+            '"Eric Schmidt" girlfriend relationship dating',
+            '"Eric Schmidt" open marriage mistress headlines',
+        ],
+    },
+    {
+        "name": "Larry Ellison",
+        "company": "Oracle",
+        "status": "Co-founder, exec chairman",
+        "queries": [
+            '"Larry Ellison" wife divorce girlfriend',
+            '"Larry Ellison" dating relationship wedding',
+        ],
+    },
+    {
+        "name": "Rupert Murdoch",
+        "company": "News Corp / Fox",
+        "status": "Former chairman",
+        "queries": [
+            '"Rupert Murdoch" engagement called off fiancee',
+            '"Rupert Murdoch" divorce wife marriage',
+        ],
+    },
+    {
+        "name": "Mark Hurd",
+        "company": "HP",
+        "status": "Former CEO — resigned 2010",
+        "queries": [
+            '"Mark Hurd" HP resignation relationship contractor',
+            '"Mark Hurd" Jodie Fisher scandal',
+        ],
+    },
+    {
+        "name": "Brian Dunn",
+        "company": "Best Buy",
+        "status": "Former CEO — resigned 2012",
+        "queries": [
+            '"Brian Dunn" Best Buy relationship employee resignation',
+        ],
+    },
+    {
+        "name": "Harry Stonecipher",
+        "company": "Boeing",
+        "status": "Former CEO — resigned 2005",
+        "queries": [
+            '"Harry Stonecipher" Boeing affair resigned code of conduct',
+        ],
+    },
+    {
+        "name": "Travis Kalanick",
+        "company": "Uber",
+        "status": "Co-founder, former CEO — resigned 2017",
+        "queries": [
+            '"Travis Kalanick" girlfriend relationship breakup',
+            '"Travis Kalanick" Gabi Holzwarth',
+        ],
+    },
+    {
+        "name": "Jack Dorsey",
+        "company": "Block / Twitter",
+        "status": "Co-founder, CEO of Block",
+        "queries": [
+            '"Jack Dorsey" dating girlfriend relationship',
+            '"Jack Dorsey" model girlfriend headlines',
+        ],
+    },
+    {
+        "name": "Mark Zuckerberg",
+        "company": "Meta",
+        "status": "CEO, in post",
+        "queries": [
+            '"Mark Zuckerberg" wife Priscilla relationship',
+        ],
+    },
+    {
+        "name": "Sundar Pichai",
+        "company": "Alphabet / Google",
+        "status": "CEO, in post",
+        "queries": [
+            '"Sundar Pichai" wife relationship',
+        ],
+    },
 ]
 
 MAX_HEADLINES_PER_CEO = 10
@@ -153,26 +248,36 @@ STRONG = re.compile(r"affair|extramarital|unfaithful|resign|fired|ousted|kiss ca
 
 
 def parse_date(s):
-    """Best-effort parse of RSS pubDate, GDELT seendate, or ISO strings."""
+    """Best-effort parse of RSS pubDate, GDELT seendate, or ISO strings.
+
+    ALWAYS returns a tz-aware datetime (or None). The fromisoformat branch
+    used to leak naive datetimes for date-only strings like "2026-11-08"
+    (exactly what the AI scout emits) — that crashed the Kafka scorer in
+    CI run 42836635711 with "can't subtract offset-naive and offset-aware".
+    """
     if not s:
         return None
     s = str(s).strip()
+    dt = None
     m = re.match(r"^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$", s)
     if m:
         try:
-            return datetime(*[int(x) for x in m.groups()], tzinfo=timezone.utc)
+            dt = datetime(*[int(x) for x in m.groups()], tzinfo=timezone.utc)
         except ValueError:
-            return None
-    try:
-        dt = parsedate_to_datetime(s)
-        if dt is not None:
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    except Exception:
-        pass
-    try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except Exception:
-        return None
+            dt = None
+    if dt is None:
+        try:
+            dt = parsedate_to_datetime(s)
+        except Exception:
+            dt = None
+    if dt is None:
+        try:
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            dt = None
+    if dt is not None and dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def age_days(date_str, now=None):
@@ -383,6 +488,8 @@ def render(results, provider, generated, community=None):
         medal = medals.get(i, "") if not hall else ""
         crown = (' <span class="crown">👑 CHIEF HORNY OFFICER</span>'
                  if not hall and i == 1 else "")
+        if not hall and r["name"] == "Jensen Huang":
+            crown += ' <span class="chip">📌 PINNED #1 — man of the hour (editorial override)</span>'
         pulse = ' <span class="pulse"></span>' if r.get("signal") == "LIVE" else ""
         last = ""
         if r.get("last_seen"):
@@ -430,9 +537,18 @@ def render(results, provider, generated, community=None):
 Nominations arrive as GitHub issues and join the CSV when approved. Allegations
 are allegations — bring receipts (links) in your reason.</p>
 <p><a class="nombtn" href="https://github.com/Sun-Wukhan/horniness-index/issues/new?template=nominate-ceo.yml" target="_blank" rel="noopener">➕ Nominate a CEO</a></p>
+<p class="sub2">Developers: to get a CEO fully tracked — Kafka producers, dedupe, scoring —
+open a pull request adding them to <code>CEOS</code> in <code>horniness-index.py</code>.
+Two search queries and a dream is all it takes.</p>
 {comm_rows}
 </section>"""
 
+    # Editorial pin: Jensen Huang holds #1 while his story is the live one.
+    # Labeled on the card as an override — the score underneath is real.
+    for _i, _r in enumerate(now_list):
+        if _r["name"] == "Jensen Huang":
+            now_list.insert(0, now_list.pop(_i))
+            break
     now_cards = "".join(card(r, i + 1) for i, r in enumerate(now_list))
     hall_cards = "".join(card(r, i + 1, hall=True) for i, r in enumerate(hall_list))
     hall_section = ""
@@ -495,6 +611,7 @@ ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#8b8b96;font-size:.83rem;line
 Now with a memory of about five minutes: the board scores <strong>current heat</strong> —
 what is happening <em>now</em> — while the classics retire to the Hall of Fame.</p>
 <p><span class="badge">🕒 Updated {generated} UTC</span> <span class="badge">🤖 Scoring: {provider}</span> <span class="badge">⚡ Powered by Kafka, hubris &amp; RSS</span></p>
+<p><a class="nombtn" href="#community">🗳️ Contribute — nominate a CEO</a></p>
 </header>
 {alert}
 <div class="stats">

@@ -161,6 +161,11 @@ def produce_ai_scout(transport):
                         if c.get("type") == "output_text":
                             text += c.get("text", "")
             text = re.sub(r"^```(json)?|```$", "", text.strip(), flags=re.M).strip()
+            # Models sometimes add prose around the array — take the
+            # outermost [...] span (3 of 8 CEOs hit plain json.loads in CI).
+            lo, hi = text.find("["), text.rfind("]")
+            if lo >= 0 and hi > lo:
+                text = text[lo:hi + 1]
             found = json.loads(text)
             kept = 0
             for h in found[:5]:
