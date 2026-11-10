@@ -1,0 +1,52 @@
+name: Nomination bot
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  append:
+    if: github.event.label.name == 'approved' && contains(github.event.issue.labels.*.name, 'nomination')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Append the nomination to community.csv
+        id: append
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          OUT=$(python3 scripts/append_nomination.py)
+          echo "$OUT"
+          echo "result=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the CSV
+        if: startsWith(steps.append.outputs.result, 'appended')
+        run: |
+          git config user.name "horniness-index bot"
+          git config user.email "actions@github.com"
+          git add community.csv
+          git commit -m "Community: add nomination from #${{ github.event.issue.number }}"
+          git push
+
+      - name: Report back on the issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const result = `${{ steps.append.outputs.result }}`;
+            const body = result.startsWith('appended')
+              ? `✅ ${result} — it's in community.csv and will appear on the site's watchlist at the next build. The database is a CSV and you are now in it.`
+              : `ℹ️ ${result}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body });
+            if (result.startsWith('appended')) {
+              await github.rest.issues.update({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.issue.number, state: 'closed' });
+            }
