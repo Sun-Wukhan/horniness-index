@@ -37,10 +37,20 @@ CEOS = [
     {
         "name": "Jensen Huang",
         "company": "NVIDIA",
-        "status": "CEO, in post",
+        "status": "Founder / former CEO — resigned Nov 2026",
         "queries": [
             '"Jensen Huang" affair',
-            '"Jensen Huang" relationship spy investigation',
+            '"Jensen Huang" resigned CEO second affair Kimberly Powell',
+            '"Jensen Huang" relationship spy investigation resignation',
+        ],
+    },
+    {
+        "name": "Colette Kress",
+        "company": "NVIDIA",
+        "status": "Interim CEO, in post",
+        "queries": [
+            '"Colette Kress" interim CEO NVIDIA',
+            '"Colette Kress" husband OR relationship OR divorce OR affair',
         ],
     },
     {
@@ -737,10 +747,15 @@ def render(results, provider, generated, community=None):
                        if r["score"] >= 15 and r.get("signal") != "COLD"
                        and _current(r)),
                       key=_fresh_key)
+    def _peak(r):
+        # A newly departed CEO's live fallout is part of the case file:
+        # if the current score is higher than the keyword-derived peak,
+        # the higher number is the peak this build can substantiate.
+        return max(r.get("legacy_score", 0), r["score"])
     hall_list = sorted((r for r in results
                         if (r.get("signal") == "COLD" or not _current(r))
-                        and r.get("legacy_score", 0) >= 40),
-                       key=lambda x: -x.get("legacy_score", x["score"]))
+                        and _peak(r) >= 40),
+                       key=lambda x: -_peak(x))
     _placed = {id(r) for r in now_list} | {id(r) for r in hall_list}
     rest_list = sorted((r for r in results if id(r) not in _placed),
                        key=lambda r: ("in post" not in (r.get("status") or "").lower(),
@@ -776,13 +791,11 @@ def render(results, provider, generated, community=None):
                 f'loading="lazy" onerror="this.remove()">') if feat_h else ""
         factors = "".join(f"<li>{html.escape(f)}</li>" for f in r["factors"])
         verdict = html.escape(r["verdict"]) if r["verdict"] else band_verdict(r["score"])
-        shown = r.get("legacy_score", r["score"]) if hall else r["score"]
-        label = "all-time peak" if hall else "current heat"
+        shown = max(r.get("legacy_score", r["score"]), r["score"]) if hall else r["score"]
+        label = "peak score" if hall else "current heat"
         medal = medals.get(i, "") if not hall else ""
         crown = (' <span class="crown">👑 CHIEF HORNY OFFICER</span>'
                  if not hall and i == 1 else "")
-        if not hall and r["name"] == "Jensen Huang":
-            crown += ' <span class="chip">📌 PINNED #1 — man of the hour (editorial override)</span>'
         pulse = ' <span class="pulse"></span>' if r.get("signal") == "LIVE" else ""
         last = ""
         if r.get("last_seen"):
@@ -839,12 +852,8 @@ Two search queries and a dream is all it takes.</p>
 {comm_rows}
 </section>"""
 
-    # Editorial pin: Jensen Huang holds #1 while his story is the live one.
-    # Labeled on the card as an override — the score underneath is real.
-    for _i, _r in enumerate(now_list):
-        if _r["name"] == "Jensen Huang":
-            now_list.insert(0, now_list.pop(_i))
-            break
+    # No editorial pin: the gates decide the board. (Jensen Huang's old
+    # pin was retired when he resigned in Nov 2026.)
     rest_rows = ""
     for r in rest_list:
         inpost = "in post" in (r.get("status") or "").lower()
@@ -868,10 +877,11 @@ Two search queries and a dream is all it takes.</p>
     hall_section = ""
     if hall_list:
         hall_section = f"""
-<h2 class="sect">📚 The Hall of Fame — cold cases</h2>
-<p class="sub2">Historical blow-ups, scored at their peak. Nothing current — the
-news cycle has moved on, the settlements have settled, the NDAs are ironclad.
-Kept here so the current generation knows the bar.</p>
+<h2 class="sect">📚 The Hall of Fame — fallen &amp; former CEOs</h2>
+<p class="sub2">Historical blow-ups and fresh exits, scored at their peak.
+Once a CEO leaves the chair, the case file moves here — including live
+fallout from a resignation — while the board above stays reserved for
+people currently in post.</p>
 {hall_cards}"""
     alert = ""
     if top_live:
@@ -929,7 +939,7 @@ ul{{margin:6px 0}} a{{color:#a8d8ff}} .fine{{color:#8b8b96;font-size:.83rem;line
 <p class="tag">Quantifying CEO downside risk, one headline at a time.<br>
 Now with a memory of about five minutes: the board scores <strong>current heat</strong> —
 what is happening <em>now</em> — while the classics retire to the Hall of Fame.</p>
-<p><span class="badge">🕒 Updated {generated} UTC</span> <span class="badge">🤖 Scoring: {provider}</span> <span class="badge">⚡ Powered by Kafka, hubris &amp; RSS</span></p>
+<p><span class="badge">🕒 Updated daily · last run {generated} UTC</span> <span class="badge">🤖 Scoring: {provider}</span> <span class="badge">⚡ Powered by Kafka, hubris &amp; RSS</span></p>
 <p><a class="nombtn" href="#community">🗳️ Contribute — nominate a CEO</a></p>
 </header>
 {alert}
